@@ -14,6 +14,7 @@
 		166B03132C1C78F800A8376B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 166B03122C1C78F800A8376B /* Assets.xcassets */; };
 		166B03162C1C78F800A8376B /* Base in Resources */ = {isa = PBXBuildFile; fileRef = 166B03152C1C78F800A8376B /* Base */; };
 		166B03182C1C78F800A8376B /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 166B03172C1C78F800A8376B /* main.m */; };
+		16E18B542E62632C006E46FD /* engine_main.c in Sources */ = {isa = PBXBuildFile; fileRef = 16E18B532E62632C006E46FD /* engine_main.c */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -30,6 +31,8 @@
 		166B03152C1C78F800A8376B /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
 		166B03172C1C78F800A8376B /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
 		166B03192C1C78F800A8376B /* TestMetal.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TestMetal.entitlements; sourceTree = "<group>"; };
+		16E18B522E62632C006E46FD /* engine_main.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = engine_main.h; sourceTree = "<group>"; };
+		16E18B532E62632C006E46FD /* engine_main.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = engine_main.c; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -37,7 +40,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				/* Metal Performance Shaders framework will be linked automatically */
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -63,6 +65,8 @@
 		166B03052C1C78F700A8376B /* TestMetal */ = {
 			isa = PBXGroup;
 			children = (
+				16E18B522E62632C006E46FD /* engine_main.h */,
+				16E18B532E62632C006E46FD /* engine_main.c */,
 				166B03062C1C78F700A8376B /* AppDelegate.h */,
 				166B03072C1C78F700A8376B /* AppDelegate.m */,
 				166B03092C1C78F700A8376B /* Renderer.h */,
@@ -152,6 +156,7 @@
 				166B03102C1C78F700A8376B /* Shaders.metal in Sources */,
 				166B030B2C1C78F700A8376B /* Renderer.m in Sources */,
 				166B030E2C1C78F700A8376B /* GameViewController.m in Sources */,
+				16E18B542E62632C006E46FD /* engine_main.c in Sources */,
 				166B03082C1C78F700A8376B /* AppDelegate.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

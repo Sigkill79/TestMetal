@@ -6,12 +6,16 @@
 //
 
 #import <MetalKit/MetalKit.h>
+#import "engine_main.h"
 
 // Our platform independent renderer class.   Implements the MTKViewDelegate protocol which
 //   allows it to accept per-frame update and drawable resize callbacks.
 @interface Renderer : NSObject <MTKViewDelegate>
 
 -(nonnull instancetype)initWithMetalKitView:(nonnull MTKView *)view;
+
+// Set engine state for integration
+- (void)setEngineState:(EngineStateStruct* _Nullable)engineState;
 
 @end
 

@@ -45,6 +45,9 @@ static const size_t kAlignedUniformsSize = (sizeof(Uniforms) & ~0xFF) + 0x100;
     float _rotation;
 
     MTKMesh *_mesh;
+    
+    // Engine integration
+    EngineStateStruct *_engineState;
 }
 
 -(nonnull instancetype)initWithMetalKitView:(nonnull MTKView *)view;
@@ -65,6 +68,11 @@ static const size_t kAlignedUniformsSize = (sizeof(Uniforms) & ~0xFF) + 0x100;
     }
 
     return self;
+}
+
+// Set engine state for integration
+- (void)setEngineState:(EngineStateStruct*)engineState {
+    _engineState = engineState;
 }
 
 - (void)_loadMetalWithView:(nonnull MTKView *)view;
@@ -365,6 +373,11 @@ static const size_t kAlignedUniformsSize = (sizeof(Uniforms) & ~0xFF) + 0x100;
     [self _updateDynamicBufferState];
 
     [self _updateGameState];
+    
+    // Update engine state
+    if (_engineState) {
+        update(_engineState);
+    }
 
     /// Delay getting the currentRenderPassDescriptor until we absolutely need it to avoid
     ///   holding onto the drawable and blocking the display pipeline any longer than necessary
