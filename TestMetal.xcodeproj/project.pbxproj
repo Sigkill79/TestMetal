@@ -8,7 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		166B03082C1C78F700A8376B /* AppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = 166B03072C1C78F700A8376B /* AppDelegate.m */; };
-		166B030B2C1C78F700A8376B /* Renderer.m in Sources */ = {isa = PBXBuildFile; fileRef = 166B030A2C1C78F700A8376B /* Renderer.m */; };
+		166B030B2C1C78F700A8376B /* engine_metal.m in Sources */ = {isa = PBXBuildFile; fileRef = 166B030A2C1C78F700A8376B /* engine_metal.m */; };
 		166B030E2C1C78F700A8376B /* GameViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 166B030D2C1C78F700A8376B /* GameViewController.m */; };
 		166B03102C1C78F700A8376B /* Shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = 166B030F2C1C78F700A8376B /* Shaders.metal */; };
 		166B03132C1C78F800A8376B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 166B03122C1C78F800A8376B /* Assets.xcassets */; };
@@ -21,8 +21,8 @@
 		166B03032C1C78F700A8376B /* TestMetal.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TestMetal.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		166B03062C1C78F700A8376B /* AppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = "<group>"; };
 		166B03072C1C78F700A8376B /* AppDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AppDelegate.m; sourceTree = "<group>"; };
-		166B03092C1C78F700A8376B /* Renderer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Renderer.h; sourceTree = "<group>"; };
-		166B030A2C1C78F700A8376B /* Renderer.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = Renderer.m; sourceTree = "<group>"; };
+		166B03092C1C78F700A8376B /* engine_metal.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = engine_metal.h; sourceTree = "<group>"; };
+		166B030A2C1C78F700A8376B /* engine_metal.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = engine_metal.m; sourceTree = "<group>"; };
 		166B030C2C1C78F700A8376B /* GameViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GameViewController.h; sourceTree = "<group>"; };
 		166B030D2C1C78F700A8376B /* GameViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = GameViewController.m; sourceTree = "<group>"; };
 		166B030F2C1C78F700A8376B /* Shaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = Shaders.metal; sourceTree = "<group>"; };
@@ -69,8 +69,8 @@
 				16E18B532E62632C006E46FD /* engine_main.c */,
 				166B03062C1C78F700A8376B /* AppDelegate.h */,
 				166B03072C1C78F700A8376B /* AppDelegate.m */,
-				166B03092C1C78F700A8376B /* Renderer.h */,
-				166B030A2C1C78F700A8376B /* Renderer.m */,
+				166B03092C1C78F700A8376B /* engine_metal.h */,
+				166B030A2C1C78F700A8376B /* engine_metal.m */,
 				166B030C2C1C78F700A8376B /* GameViewController.h */,
 				166B030D2C1C78F700A8376B /* GameViewController.m */,
 				166B030F2C1C78F700A8376B /* Shaders.metal */,
@@ -154,7 +154,7 @@
 			files = (
 				166B03182C1C78F800A8376B /* main.m in Sources */,
 				166B03102C1C78F700A8376B /* Shaders.metal in Sources */,
-				166B030B2C1C78F700A8376B /* Renderer.m in Sources */,
+				166B030B2C1C78F700A8376B /* engine_metal.m in Sources */,
 				166B030E2C1C78F700A8376B /* GameViewController.m in Sources */,
 				16E18B542E62632C006E46FD /* engine_main.c in Sources */,
 				166B03082C1C78F700A8376B /* AppDelegate.m in Sources */,

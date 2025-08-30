@@ -1,0 +1,35 @@
+# Makefile for Engine Math Library Testing
+# This allows testing the math library without the full Xcode project
+
+CC = gcc
+CFLAGS = -std=c99 -O2 -march=native -ffast-math -Wall -Wextra
+LDFLAGS = -lm
+
+# Source files
+MATH_SOURCES = engine_math.c engine_math_test.c
+MATH_OBJECTS = $(MATH_SOURCES:.c=.o)
+
+# Targets
+all: math_test
+
+math_test: $(MATH_OBJECTS)
+	$(CC) $(MATH_OBJECTS) -o math_test $(LDFLAGS)
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Test the math library
+test: math_test
+	./math_test
+
+# Clean up
+clean:
+	rm -f *.o math_test
+
+# Install math library (copy to system)
+install: engine_math.h engine_math.c
+	sudo cp engine_math.h /usr/local/include/
+	sudo cp engine_math.c /usr/local/lib/
+	sudo ln -sf /usr/local/lib/engine_math.c /usr/local/lib/libenginemath.a
+
+.PHONY: all test clean install

@@ -6,15 +6,13 @@
 //
 
 #import "GameViewController.h"
-#import "Renderer.h"
+#import "engine_main.h"
 
 @implementation GameViewController
 {
     MTKView *_view;
-
-    Renderer *_renderer;
     
-    // Engine state
+    // Engine state - now only accessed through engine_main interface
     EngineStateStruct *_engineState;
 }
 
@@ -33,32 +31,43 @@
         return;
     }
 
-    _renderer = [[Renderer alloc] initWithMetalKitView:_view];
-
-    [_renderer mtkView:_view drawableSizeWillChange:_view.drawableSize];
-
-    _view.delegate = _renderer;
+    // Set view delegate to handle rendering first
+    _view.delegate = self;
     
-    // Initialize engine
-    _engineState = initialize();
-    if (_engineState) {
-        _engineState->state = ENGINE_STATE_RUNNING;
-        NSLog(@"✅ Engine initialized successfully");
-        
-        // Pass engine state to renderer
-        [_renderer setEngineState:_engineState];
-    } else {
-        NSLog(@"❌ Failed to initialize engine");
+    // Initialize engine with Metal using the new interface
+    // Use default viewport size if drawable size is not yet available
+    float width = _view.drawableSize.width > 0 ? _view.drawableSize.width : 800.0f;
+    float height = _view.drawableSize.height > 0 ? _view.drawableSize.height : 600.0f;
+    
+    _engineState = initialize_with_metal((__bridge MetalViewHandle)_view, width, height);
+    
+    if (!_engineState) {
+        NSLog(@"❌ Failed to initialize engine with Metal");
+        return;
     }
+    
+    NSLog(@"✅ Engine initialized successfully with Metal");
 }
 
 - (void)dealloc {
-    // Shutdown engine
+    // Shutdown engine using engine_main interface
     if (_engineState) {
         engine_shutdown(_engineState);
         _engineState = NULL;
         NSLog(@"✅ Engine shutdown successfully");
     }
+}
+
+#pragma mark - MTKViewDelegate
+
+- (void)drawInMTKView:(nonnull MTKView *)view {
+    // Update engine (which includes rendering) using engine_main interface
+    update(_engineState);
+}
+
+- (void)mtkView:(nonnull MTKView *)view drawableSizeWillChange:(CGSize)size {
+    // Update viewport size using engine_main interface
+    engine_resize_viewport(_engineState, size.width, size.height);
 }
 
 @end

@@ -1,0 +1,35 @@
+# Makefile for Engine 3D Model Library Testing
+# This allows testing the 3D model library without the full Xcode project
+
+CC = gcc
+CFLAGS = -std=c99 -O2 -march=native -ffast-math -Wall -Wextra
+LDFLAGS = -lm
+
+# Source files
+MODEL_SOURCES = engine_model.c engine_model_test.c
+MODEL_OBJECTS = $(MODEL_SOURCES:.c=.o)
+
+# Targets
+all: model_test
+
+model_test: $(MODEL_OBJECTS)
+	$(CC) $(MODEL_OBJECTS) -o model_test $(LDFLAGS)
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Test the 3D model library
+test: model_test
+	./model_test
+
+# Clean up
+clean:
+	rm -f *.o model_test
+
+# Install 3D model library (copy to system)
+install: engine_model.h engine_model.c
+	sudo cp engine_model.h /usr/local/include/
+	sudo cp engine_model.c /usr/local/lib/
+	sudo ln -sf /usr/local/lib/engine_model.c /usr/local/lib/libenginemodel.a
+
+.PHONY: all test clean install

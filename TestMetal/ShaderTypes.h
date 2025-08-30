@@ -21,25 +21,10 @@ typedef NSInteger EnumBackingType;
 
 #include <simd/simd.h>
 
-typedef NS_ENUM(EnumBackingType, BufferIndex)
-{
-    BufferIndexMeshPositions = 0,
-    BufferIndexMeshGenerics  = 1,
-    BufferIndexUniforms      = 2
-};
+// This file now includes the engine shader types for compatibility
+#include "engine_metal_shaders.h"
 
-typedef NS_ENUM(EnumBackingType, VertexAttribute)
-{
-    VertexAttributePosition  = 0,
-    VertexAttributeTexcoord  = 1,
-    VertexAttributeNormal    = 2,
-};
-
-typedef NS_ENUM(EnumBackingType, TextureIndex)
-{
-    TextureIndexColor    = 0,
-};
-
+// Legacy compatibility - map engine types to Metal types
 typedef struct
 {
     matrix_float4x4 projectionMatrix;
@@ -49,6 +34,17 @@ typedef struct
     vector_float3 cameraPosition;
     float time;
 } Uniforms;
+
+// Legacy compatibility - map engine enums to Metal enums
+#define BufferIndexVertices     BufferIndexVertices
+#define BufferIndexIndices      BufferIndexIndices
+#define BufferIndexUniforms     BufferIndexUniforms
+
+#define VertexAttributePosition VertexAttributePosition
+#define VertexAttributeTexcoord VertexAttributeTexcoord
+#define VertexAttributeNormal   VertexAttributeNormal
+
+#define TextureIndexColorMap    TextureIndexColorMap
 
 #endif /* ShaderTypes_h */
 

@@ -3,15 +3,15 @@
     "version" : 1,
     "author" : "xcode"
   },
+  "data" : [
+    {
+      "filename" : "ColorMap.png",
+      "idiom" : "universal"
+    }
+  ],
   "properties" : {
     "origin" : "bottom-left",
     "interpretation" : "non-premultiplied-colors"
-  },
-  "textures" : [
-    {
-      "idiom" : "universal",
-      "filename" : "Universal.mipmapset"
-    }
-  ]
+  }
 }
 

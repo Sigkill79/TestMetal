@@ -3,6 +3,12 @@
     "author" : "xcode",
     "version" : 1
   },
+  "data" : [
+    {
+      "filename" : "UnitBox.fbx",
+      "idiom" : "universal"
+    }
+  ],
   "properties" : {
     "provides-namespace" : true
   }
