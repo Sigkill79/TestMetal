@@ -22,6 +22,25 @@
 #define VertexNormalOffset 24
 #define VertexStride 36
 
+// Performance and rendering constants
+#define FALLBACK_TEXTURE_SIZE 512
+#define CHECKERBOARD_TILE_SIZE 64
+#define VERTEX_COMPONENT_COUNT 8
+#define MATRIX_COMPONENT_COUNT 16
+#define CUBE_VERTEX_COUNT 8
+#define CUBE_INDEX_COUNT 36
+#define CUBE_FACE_COUNT 6
+#define CUBE_TRIANGLES_PER_FACE 2
+
+// Error handling macros
+#define METAL_ERROR(fmt, ...) fprintf(stderr, "Metal Error: " fmt "\n", ##__VA_ARGS__)
+#define METAL_SUCCESS 1
+#define METAL_FAILURE 0
+
+// Debug macros
+#define METAL_DEBUG(fmt, ...) fprintf(stderr, "Metal Debug: " fmt "\n", ##__VA_ARGS__)
+#define METAL_INFO(fmt, ...) fprintf(stderr, "Metal Info: " fmt "\n", ##__VA_ARGS__)
+
 // Define MetalUniforms struct for uniform buffer sizing
 typedef struct {
     float projectionMatrix[16];    // 4x4 matrix
@@ -59,40 +78,23 @@ static void mat4_to_float_array(mat4_t* mat, float* arr) {
     // mat4_t stores: x, y, z, w where each is a vec4_t
     // We need column-major order for Metal: [col0, col1, col2, col3]
     
-    // Column 0: x components
-    arr[0] = mat->x.x;  // x.x
-    arr[1] = mat->x.y;  // x.y  
-    arr[2] = mat->x.z;  // x.z
-    arr[3] = mat->x.w;  // x.w
-    
-    // Column 1: y components
-    arr[4] = mat->y.x;  // y.x
-    arr[5] = mat->y.y;  // y.y
-    arr[6] = mat->y.z;  // y.z
-    arr[7] = mat->y.w;  // y.w
-    
-    // Column 2: z components
-    arr[8] = mat->z.x;  // z.x
-    arr[9] = mat->z.y;  // z.y
-    arr[10] = mat->z.z; // z.z
-    arr[11] = mat->z.w; // z.w
-    
-    // Column 3: w components
-    arr[12] = mat->w.x; // w.x
-    arr[13] = mat->w.y; // w.y
-    arr[14] = mat->w.z; // w.z
-    arr[15] = mat->w.w; // w.w
+    // Use direct memory copy for better performance
+    memcpy(arr, mat, sizeof(mat4_t));
 }
 
-// Forward declarations for Metal objects
+// Metal device and pipeline state
 typedef struct {
     id<MTLDevice> device;
     id<MTLCommandQueue> commandQueue;
     id<MTLRenderPipelineState> renderPipelineState;
-    id<MTLBuffer> dynamicUniformBuffer;
     id<MTLDepthStencilState> depthState;
-    id<MTLTexture> colorMap;
     MTLVertexDescriptor* mtlVertexDescriptor;
+} MetalDeviceState;
+
+// Metal buffer and resource management
+typedef struct {
+    id<MTLBuffer> dynamicUniformBuffer;
+    id<MTLTexture> colorMap;
     MTKMesh* mesh;
     MetalModel* uploadedModel;
     
@@ -101,7 +103,14 @@ typedef struct {
     uint8_t uniformBufferIndex;
     void* uniformBufferAddress;
     
-    // Rendering state
+    // Manual mesh buffers (for our custom cube)
+    id<MTLBuffer> vertexBuffer;
+    id<MTLBuffer> indexBuffer;
+    uint32_t indexCount;
+} MetalResourceState;
+
+// Metal rendering and game state
+typedef struct {
     uint32_t frameCount;
     float rotationAngle;
     int viewportWidth;
@@ -114,30 +123,158 @@ typedef struct {
     
     // Engine state
     int isInitialized;
-    
-    // Metal 3.0 features
+    void* engineState;
+} MetalRenderState;
+
+// Metal 3.0 feature support
+typedef struct {
     int supportsMeshShading;
     int supportsObjectCapture;
     int supportsDynamicLibraries;
     int supportsRaytracing;
     int supportsBCTextureCompression;
     int supportsCounters;
-    
-    // Engine integration
-    void* engineState;
-    
-    
-    
-    // Manual mesh buffers (for our custom cube)
-    id<MTLBuffer> vertexBuffer;
-    id<MTLBuffer> indexBuffer;
-    uint32_t indexCount;
-    
+} MetalFeatureState;
+
+// Main Metal engine implementation structure
+typedef struct {
+    MetalDeviceState device;
+    MetalResourceState resources;
+    MetalRenderState render;
+    MetalFeatureState features;
 } MetalEngineImpl;
 
 // Constants
 static const NSUInteger kMaxBuffersInFlight = 3;
 static const size_t kAlignedUniformsSize = (sizeof(MetalUniforms) & ~0xFF) + 0x100;
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+// Internal helper function to render a single mesh
+static void render_single_mesh(id<MTLRenderCommandEncoder> encoder, 
+                              id<MTLBuffer> vertexBuffer, 
+                              id<MTLBuffer> indexBuffer, 
+                              uint32_t indexCount, 
+                              uint32_t meshIndex,
+                              int debugMode) {
+    if (!vertexBuffer || !indexBuffer || indexCount == 0) {
+        METAL_ERROR("Invalid mesh %u for rendering", meshIndex);
+        return;
+    }
+    
+    if (debugMode) {
+        METAL_DEBUG("Rendering mesh %u: vertexBuffer=%p, indexBuffer=%p, indexCount=%u", 
+                   meshIndex, vertexBuffer, indexBuffer, indexCount);
+        METAL_DEBUG("Drawing mesh %u: indexCount=%u, indexBuffer.length=%lu", 
+                   meshIndex, indexCount, (unsigned long)indexBuffer.length);
+        METAL_DEBUG("Buffer pointer during draw: %p", indexBuffer);
+    }
+    
+    // Set vertex buffer
+    [encoder setVertexBuffer:vertexBuffer offset:0 atIndex:BufferIndexVertices];
+    
+    // Draw indexed primitives
+    [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                        indexCount:indexCount
+                         indexType:MTLIndexTypeUInt32
+                       indexBuffer:indexBuffer
+                 indexBufferOffset:0];
+}
+
+// Internal helper function to render all meshes in a model
+static void render_model_meshes(MetalModel* metalModel, 
+                               id<MTLRenderCommandEncoder> encoder, 
+                               int debugMode) {
+    if (debugMode) {
+        METAL_DEBUG("Rendering model: %s with %u meshes", metalModel->name, metalModel->meshCount);
+    }
+    
+    // Render each mesh
+    for (uint32_t i = 0; i < metalModel->meshCount; i++) {
+        render_single_mesh(encoder, 
+                          metalModel->vertexBuffers[i], 
+                          metalModel->indexBuffers[i], 
+                          metalModel->indexCounts[i], 
+                          i, 
+                          debugMode);
+    }
+}
+
+// Internal helper function to convert vertex data to Metal format
+static float* convert_vertex_data_to_metal(Mesh* mesh) {
+    if (!mesh->vertices || mesh->vertex_count == 0) {
+        return NULL;
+    }
+    
+    // Convert vertices to Metal format (position + texcoord + normal)
+    size_t vertexDataSize = mesh->vertex_count * sizeof(float) * VERTEX_COMPONENT_COUNT;
+    float* vertexData = (float*)malloc(vertexDataSize);
+    if (!vertexData) {
+        METAL_ERROR("Failed to allocate vertex data for mesh");
+        return NULL;
+    }
+    
+    // Pack vertex data: position(3) + texcoord(2) + normal(3) = VERTEX_COMPONENT_COUNT floats
+    for (uint32_t j = 0; j < mesh->vertex_count; j++) {
+        Vertex* vertex = &mesh->vertices[j];
+        float* dst = vertexData + j * VERTEX_COMPONENT_COUNT;
+        
+        // Position
+        dst[0] = vertex->position.x;
+        dst[1] = vertex->position.y;
+        dst[2] = vertex->position.z;
+        
+        // TexCoord
+        dst[3] = vertex->texcoord.x;
+        dst[4] = vertex->texcoord.y;
+        
+        // Normal
+        dst[5] = vertex->normal.x;
+        dst[6] = vertex->normal.y;
+        dst[7] = vertex->normal.z;
+    }
+    
+    return vertexData;
+}
+
+// Internal helper function to create Metal buffers for a mesh
+static int create_mesh_buffers(id<MTLDevice> device, 
+                              Mesh* mesh, 
+                              float* vertexData, 
+                              uint32_t meshIndex,
+                              const char* modelName,
+                              id<MTLBuffer>* vertexBuffer,
+                              id<MTLBuffer>* indexBuffer) {
+    // Create vertex buffer
+    size_t vertexDataSize = mesh->vertex_count * sizeof(float) * VERTEX_COMPONENT_COUNT;
+    *vertexBuffer = [device newBufferWithBytes:vertexData
+                                       length:vertexDataSize
+                                      options:MTLResourceStorageModeShared];
+    (*vertexBuffer).label = [NSString stringWithFormat:@"%@_Mesh%u_Vertices", 
+                             [NSString stringWithUTF8String:modelName], meshIndex];
+    
+    // Create index buffer
+    size_t indexBufferSize = mesh->index_count * sizeof(uint32_t);
+    METAL_DEBUG("Creating index buffer: mesh->index_count=%u, sizeof(uint32_t)=%zu, total size=%zu", 
+                mesh->index_count, sizeof(uint32_t), indexBufferSize);
+    METAL_DEBUG("mesh->indices pointer: %p", mesh->indices);
+    
+    if (mesh->indices && mesh->index_count > 0) {
+        METAL_DEBUG("First few indices: %u, %u, %u, %u, %u", 
+                    mesh->indices[0], mesh->indices[1], mesh->indices[2], mesh->indices[3], mesh->indices[4]);
+    }
+    
+    *indexBuffer = [device newBufferWithBytes:mesh->indices
+                                      length:indexBufferSize
+                                     options:MTLResourceStorageModeShared];
+    (*indexBuffer).label = [NSString stringWithFormat:@"%@_Mesh%u_Indices", 
+                           [NSString stringWithUTF8String:modelName], meshIndex];
+    METAL_DEBUG("Created index buffer with length: %lu", (unsigned long)(*indexBuffer).length);
+    
+    return METAL_SUCCESS;
+}
 
 // ============================================================================
 // METAL ENGINE FUNCTIONS
@@ -146,7 +283,7 @@ static const size_t kAlignedUniformsSize = (sizeof(MetalUniforms) & ~0xFF) + 0x1
 MetalEngine* metal_engine_init(void) {
     MetalEngineImpl* engine = (MetalEngineImpl*)malloc(sizeof(MetalEngineImpl));
     if (!engine) {
-        fprintf(stderr, "Failed to allocate Metal engine\n");
+        METAL_ERROR("Failed to allocate Metal engine");
         return NULL;
     }
     
@@ -154,13 +291,13 @@ MetalEngine* metal_engine_init(void) {
     memset((void*)engine, 0, sizeof(MetalEngineImpl));
     
     // Set default values
-    engine->viewportWidth = 800;
-    engine->viewportHeight = 600;
-    engine->rotationAngle = 0.0f;
-    engine->frameCount = 0;
-    engine->isInitialized = 0;
+    engine->render.viewportWidth = 800;
+    engine->render.viewportHeight = 600;
+    engine->render.rotationAngle = 0.0f;
+    engine->render.frameCount = 0;
+    engine->render.isInitialized = 0;
     
-    fprintf(stderr, "Metal engine initialized\n");
+    METAL_INFO("Metal engine initialized");
     return (MetalEngine*)engine;
 }
 
@@ -170,7 +307,7 @@ MetalEngine* metal_engine_init_with_view(MetalViewHandle view) {
     
     if (metal_engine_load_metal_with_view(engine, view)) {
         if (metal_engine_load_assets(engine)) {
-            fprintf(stderr, "Metal engine initialized with view successfully\n");
+            METAL_INFO("Metal engine initialized with view successfully");
             return engine;
         }
     }
@@ -186,27 +323,27 @@ void metal_engine_shutdown(MetalEngine* engine) {
     MetalEngineImpl* impl = (MetalEngineImpl*)engine;
     
     // Release Metal objects
-    if (impl->device) {
+    if (impl->device.device) {
         // Release our custom buffers
-        if (impl->vertexBuffer) {
+        if (impl->resources.vertexBuffer) {
             // Note: In a real implementation, we would release Metal objects here
-            impl->vertexBuffer = nil;
+            impl->resources.vertexBuffer = nil;
         }
-        if (impl->indexBuffer) {
+        if (impl->resources.indexBuffer) {
             // Note: In a real implementation, we would release Metal objects here
-            impl->indexBuffer = nil;
+            impl->resources.indexBuffer = nil;
         }
         
         // Release uploaded model
-        if (impl->uploadedModel) {
-            metal_engine_free_model((MetalModelHandle)impl->uploadedModel);
-            impl->uploadedModel = NULL;
+        if (impl->resources.uploadedModel) {
+            metal_engine_free_model((MetalModelHandle)impl->resources.uploadedModel);
+            impl->resources.uploadedModel = NULL;
         }
         
         // Note: In a real implementation, we would release other Metal objects here
     }
     
-    fprintf(stderr, "Metal engine shutdown\n");
+    METAL_INFO("Metal engine shutdown");
     free(impl);
 }
 
@@ -217,9 +354,9 @@ int metal_engine_load_metal_with_view(MetalEngine* engine, MetalViewHandle view)
     MTKView* mtkView = (__bridge MTKView*)view;
     
     // Get device from view
-    impl->device = mtkView.device;
-    if (!impl->device) {
-        fprintf(stderr, "Failed to get Metal device from view\n");
+    impl->device.device = mtkView.device;
+    if (!impl->device.device) {
+        METAL_ERROR("Failed to get Metal device from view");
         return 0;
     }
     
@@ -229,46 +366,46 @@ int metal_engine_load_metal_with_view(MetalEngine* engine, MetalViewHandle view)
     mtkView.sampleCount = 1;
     
     // Create command queue
-    impl->commandQueue = [impl->device newCommandQueue];
-    if (!impl->commandQueue) {
-        fprintf(stderr, "Failed to create command queue\n");
+    impl->device.commandQueue = [impl->device.device newCommandQueue];
+    if (!impl->device.commandQueue) {
+        METAL_ERROR("Failed to create command queue");
         return 0;
     }
     
     // Create vertex descriptor
-    impl->mtlVertexDescriptor = [[MTLVertexDescriptor alloc] init];
+    impl->device.mtlVertexDescriptor = [[MTLVertexDescriptor alloc] init];
     
-    impl->mtlVertexDescriptor.attributes[VertexAttributePosition].format = MTLVertexFormatFloat3;
-    impl->mtlVertexDescriptor.attributes[VertexAttributePosition].offset = 0;
-    impl->mtlVertexDescriptor.attributes[VertexAttributePosition].bufferIndex = 0; // Use buffer 0 for all vertex data
+    impl->device.mtlVertexDescriptor.attributes[VertexAttributePosition].format = MTLVertexFormatFloat3;
+    impl->device.mtlVertexDescriptor.attributes[VertexAttributePosition].offset = 0;
+    impl->device.mtlVertexDescriptor.attributes[VertexAttributePosition].bufferIndex = 0; // Use buffer 0 for all vertex data
     
-    impl->mtlVertexDescriptor.attributes[VertexAttributeTexcoord].format = MTLVertexFormatFloat2;
-    impl->mtlVertexDescriptor.attributes[VertexAttributeTexcoord].offset = 12; // After position (3 floats * 4 bytes)
-    impl->mtlVertexDescriptor.attributes[VertexAttributeTexcoord].bufferIndex = 0; // Use buffer 0 for all vertex data
+    impl->device.mtlVertexDescriptor.attributes[VertexAttributeTexcoord].format = MTLVertexFormatFloat2;
+    impl->device.mtlVertexDescriptor.attributes[VertexAttributeTexcoord].offset = 12; // After position (3 floats * 4 bytes)
+    impl->device.mtlVertexDescriptor.attributes[VertexAttributeTexcoord].bufferIndex = 0; // Use buffer 0 for all vertex data
     
-    impl->mtlVertexDescriptor.attributes[VertexAttributeNormal].format = MTLVertexFormatFloat3;
-    impl->mtlVertexDescriptor.attributes[VertexAttributeNormal].offset = 20; // After texcoord (3 + 2 floats * 4 bytes)
-    impl->mtlVertexDescriptor.attributes[VertexAttributeNormal].bufferIndex = 0; // Use buffer 0 for all vertex data
+    impl->device.mtlVertexDescriptor.attributes[VertexAttributeNormal].format = MTLVertexFormatFloat3;
+    impl->device.mtlVertexDescriptor.attributes[VertexAttributeNormal].offset = 20; // After texcoord (3 + 2 floats * 4 bytes)
+    impl->device.mtlVertexDescriptor.attributes[VertexAttributeNormal].bufferIndex = 0; // Use buffer 0 for all vertex data
     
-    impl->mtlVertexDescriptor.layouts[0].stride = 32; // 8 floats * 4 bytes (3 pos + 2 tex + 3 normal)
-    impl->mtlVertexDescriptor.layouts[0].stepRate = 1;
-    impl->mtlVertexDescriptor.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
+    impl->device.mtlVertexDescriptor.layouts[0].stride = 32; // 8 floats * 4 bytes (3 pos + 2 tex + 3 normal)
+    impl->device.mtlVertexDescriptor.layouts[0].stepRate = 1;
+    impl->device.mtlVertexDescriptor.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
     
     // Create uniform buffer
     NSUInteger uniformBufferSize = kAlignedUniformsSize * kMaxBuffersInFlight;
-    impl->dynamicUniformBuffer = [impl->device newBufferWithLength:uniformBufferSize
+    impl->resources.dynamicUniformBuffer = [impl->device.device newBufferWithLength:uniformBufferSize
                                                            options:MTLResourceStorageModeShared];
-    impl->dynamicUniformBuffer.label = @"UniformBuffer";
+    impl->resources.dynamicUniformBuffer.label = @"UniformBuffer";
     
     // Create depth stencil state
     MTLDepthStencilDescriptor* depthStateDesc = [[MTLDepthStencilDescriptor alloc] init];
     depthStateDesc.depthCompareFunction = MTLCompareFunctionLess;
     depthStateDesc.depthWriteEnabled = YES;
-    impl->depthState = [impl->device newDepthStencilStateWithDescriptor:depthStateDesc];
+    impl->device.depthState = [impl->device.device newDepthStencilStateWithDescriptor:depthStateDesc];
     
     // Create render pipeline state (required for rendering)
     if (!metal_engine_create_pipeline(engine)) {
-        fprintf(stderr, "Failed to create render pipeline state\n");
+        METAL_ERROR("Failed to create render pipeline state");
         return 0;
     }
     
@@ -278,19 +415,19 @@ int metal_engine_load_metal_with_view(MetalEngine* engine, MetalViewHandle view)
     metal_engine_enable_dynamic_libraries(engine);
     metal_engine_report_metal_features(engine);
     
-    fprintf(stderr, "Metal state loaded successfully\n");
+    METAL_INFO("Metal state loaded successfully");
     return 1;
 }
 
 int metal_engine_create_buffers(MetalEngine* engine) {
     if (!engine) return 0;
     
-    // MetalEngineImpl* impl = (MetalEngineImpl*)engine; // Unused variable
+    // Note: engine parameter not used in this function
     
     // Note: In a real implementation, this would create Metal buffers
     // For now, we just mark it as successful
     
-    fprintf(stderr, "Metal buffer creation requested\n");
+    METAL_INFO("Metal buffer creation requested");
     return 1;
 }
 
@@ -300,9 +437,9 @@ int metal_engine_create_pipeline(MetalEngine* engine) {
     MetalEngineImpl* impl = (MetalEngineImpl*)engine;
     
     // Get default library
-    id<MTLLibrary> defaultLibrary = [impl->device newDefaultLibrary];
+    id<MTLLibrary> defaultLibrary = [impl->device.device newDefaultLibrary];
     if (!defaultLibrary) {
-        fprintf(stderr, "Failed to create default library\n");
+        METAL_ERROR("Failed to create default library");
         return 0;
     }
     
@@ -311,7 +448,7 @@ int metal_engine_create_pipeline(MetalEngine* engine) {
     id<MTLFunction> fragmentFunction = [defaultLibrary newFunctionWithName:@"fragmentShader"];
     
     if (!vertexFunction || !fragmentFunction) {
-        fprintf(stderr, "Failed to get shader functions\n");
+        METAL_ERROR("Failed to get shader functions");
         return 0;
     }
     
@@ -321,20 +458,20 @@ int metal_engine_create_pipeline(MetalEngine* engine) {
     pipelineStateDescriptor.rasterSampleCount = 1;
     pipelineStateDescriptor.vertexFunction = vertexFunction;
     pipelineStateDescriptor.fragmentFunction = fragmentFunction;
-    pipelineStateDescriptor.vertexDescriptor = impl->mtlVertexDescriptor;
+    pipelineStateDescriptor.vertexDescriptor = impl->device.mtlVertexDescriptor;
     pipelineStateDescriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm_sRGB;
     pipelineStateDescriptor.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float_Stencil8;
     pipelineStateDescriptor.stencilAttachmentPixelFormat = MTLPixelFormatDepth32Float_Stencil8;
     
     // Create pipeline state
     NSError* error = NULL;
-    impl->renderPipelineState = [impl->device newRenderPipelineStateWithDescriptor:pipelineStateDescriptor error:&error];
-    if (!impl->renderPipelineState) {
-        fprintf(stderr, "Failed to create pipeline state: %s\n", error.localizedDescription.UTF8String);
+    impl->device.renderPipelineState = [impl->device.device newRenderPipelineStateWithDescriptor:pipelineStateDescriptor error:&error];
+    if (!impl->device.renderPipelineState) {
+        METAL_ERROR("Failed to create pipeline state: %s", error.localizedDescription.UTF8String);
         return 0;
     }
     
-    fprintf(stderr, "Metal pipeline created successfully\n");
+    METAL_INFO("Metal pipeline created successfully");
     return 1;
 }
 
@@ -343,12 +480,12 @@ int metal_engine_create_mesh(MetalEngine* engine) {
     
     MetalEngineImpl* impl = (MetalEngineImpl*)engine;
     
-    NSError* error;
+    NSError* error = nil;
     
     // Create cube vertices manually with exact format we need
-    // Format: position (3 floats) + texcoord (2 floats) + normal (3 floats) = 8 floats = 32 bytes
+    // Format: position (3 floats) + texcoord (2 floats) + normal (3 floats) = VERTEX_COMPONENT_COUNT floats = 32 bytes
     
-    // Cube vertices: 8 vertices for a cube
+    // Cube vertices: CUBE_VERTEX_COUNT vertices for a cube
     float vertices[] = {
         // Front face
         -1.0f, -1.0f,  1.0f,  0.0f, 0.0f,  0.0f,  0.0f,  1.0f,  // 0: bottom-left-front
@@ -363,7 +500,7 @@ int metal_engine_create_mesh(MetalEngine* engine) {
         -1.0f,  1.0f, -1.0f,  0.0f, 1.0f,  0.0f,  0.0f, -1.0f   // 7: top-left-back
     };
     
-    // Cube indices: 12 triangles (6 faces * 2 triangles each)
+    // Cube indices: CUBE_INDEX_COUNT indices (CUBE_FACE_COUNT faces * CUBE_TRIANGLES_PER_FACE triangles each)
     uint16_t indices[] = {
         // Front face
         0, 1, 2,  0, 2, 3,
@@ -380,27 +517,27 @@ int metal_engine_create_mesh(MetalEngine* engine) {
     };
     
     // Create vertex buffer
-    id<MTLBuffer> vertexBuffer = [impl->device newBufferWithBytes:vertices
+    id<MTLBuffer> vertexBuffer = [impl->device.device newBufferWithBytes:vertices
                                                            length:sizeof(vertices)
                                                           options:MTLResourceStorageModeShared];
     vertexBuffer.label = @"CubeVertices";
     
     // Create index buffer
-    id<MTLBuffer> indexBuffer = [impl->device newBufferWithBytes:indices
+    id<MTLBuffer> indexBuffer = [impl->device.device newBufferWithBytes:indices
                                                           length:sizeof(indices)
                                                          options:MTLResourceStorageModeShared];
     indexBuffer.label = @"CubeIndices";
     
     // Store the buffers for rendering
-    impl->vertexBuffer = vertexBuffer;
-    impl->indexBuffer = indexBuffer;
-    impl->indexCount = sizeof(indices) / sizeof(uint16_t);
+    impl->resources.vertexBuffer = vertexBuffer;
+    impl->resources.indexBuffer = indexBuffer;
+    impl->resources.indexCount = sizeof(indices) / sizeof(uint16_t);
     
     // Set mesh to NULL since we're not using MTKMesh anymore
-    impl->mesh = nil;
+    impl->resources.mesh = nil;
     
-    fprintf(stderr, "Cube mesh created successfully\n");
-    fprintf(stderr, "Vertex count: 8, Index count: %d\n", impl->indexCount);
+    METAL_INFO("Cube mesh created successfully");
+    METAL_INFO("Vertex count: %d, Index count: %d", CUBE_VERTEX_COUNT, impl->resources.indexCount);
     
     return 1;
 }
@@ -440,77 +577,40 @@ MetalModelHandle metal_engine_upload_model(MetalEngine* engine, Model3D* model) 
         Mesh* mesh = &model->meshes[i];
         
         if (!mesh->vertices || !mesh->indices || mesh->vertex_count == 0 || mesh->index_count == 0) {
-            fprintf(stderr, "Invalid mesh %u for upload\n", i);
+            METAL_ERROR("Invalid mesh %u for upload", i);
             continue;
         }
         
-        // Convert vertices to Metal format (position + texcoord + normal)
-        size_t vertexDataSize = mesh->vertex_count * sizeof(float) * 8; // 8 floats per vertex
-        float* vertexData = (float*)malloc(vertexDataSize);
+        // Convert vertex data to Metal format
+        float* vertexData = convert_vertex_data_to_metal(mesh);
         if (!vertexData) {
-            fprintf(stderr, "Failed to allocate vertex data for mesh %u\n", i);
+            METAL_ERROR("Failed to convert vertex data for mesh %u", i);
             continue;
         }
         
-        // Pack vertex data: position(3) + texcoord(2) + normal(3) = 8 floats
-        for (uint32_t j = 0; j < mesh->vertex_count; j++) {
-            Vertex* vertex = &mesh->vertices[j];
-            float* dst = vertexData + j * 8;
-            
-            // Position
-            dst[0] = vertex->position.x;
-            dst[1] = vertex->position.y;
-            dst[2] = vertex->position.z;
-            
-            // TexCoord
-            dst[3] = vertex->texcoord.x;
-            dst[4] = vertex->texcoord.y;
-            
-            // Normal
-            dst[5] = vertex->normal.x;
-            dst[6] = vertex->normal.y;
-            dst[7] = vertex->normal.z;
+        // Create Metal buffers
+        id<MTLBuffer> vertexBuffer, indexBuffer;
+        if (create_mesh_buffers(impl->device.device, mesh, vertexData, i, metalModel->name, &vertexBuffer, &indexBuffer) != METAL_SUCCESS) {
+            free(vertexData);
+            continue;
         }
-        
-        // Create vertex buffer
-        id<MTLBuffer> vertexBuffer = [impl->device newBufferWithBytes:vertexData
-                                                               length:vertexDataSize
-                                                              options:MTLResourceStorageModeShared];
-        vertexBuffer.label = [NSString stringWithFormat:@"%@_Mesh%u_Vertices", 
-                              [NSString stringWithUTF8String:metalModel->name], i];
-        
-        // Create index buffer
-        size_t indexBufferSize = mesh->index_count * sizeof(uint32_t);
-        fprintf(stderr, "Creating index buffer: mesh->index_count=%u, sizeof(uint32_t)=%zu, total size=%zu\n", 
-                mesh->index_count, sizeof(uint32_t), indexBufferSize);
-        fprintf(stderr, "mesh->indices pointer: %p\n", mesh->indices);
-        if (mesh->indices && mesh->index_count > 0) {
-            fprintf(stderr, "First few indices: %u, %u, %u, %u, %u\n", 
-                    mesh->indices[0], mesh->indices[1], mesh->indices[2], mesh->indices[3], mesh->indices[4]);
-        }
-        id<MTLBuffer> indexBuffer = [impl->device newBufferWithBytes:mesh->indices
-                                                             length:indexBufferSize
-                                                            options:MTLResourceStorageModeShared];
-        indexBuffer.label = [NSString stringWithFormat:@"%@_Mesh%u_Indices", 
-                            [NSString stringWithUTF8String:metalModel->name], i];
-        fprintf(stderr, "Created index buffer with length: %lu\n", (unsigned long)indexBuffer.length);
         
         // Store buffers
         metalModel->vertexBuffers[i] = vertexBuffer;
         metalModel->indexBuffers[i] = indexBuffer;
         metalModel->indexCounts[i] = mesh->index_count;
         
-        fprintf(stderr, "Stored buffers for mesh %u: vertexBuffer=%p, indexBuffer=%p, length=%lu\n", 
+        METAL_DEBUG("Stored buffers for mesh %u: vertexBuffer=%p, indexBuffer=%p, length=%lu", 
                 i, vertexBuffer, indexBuffer, (unsigned long)indexBuffer.length);
         
         // Free temporary vertex data
         free(vertexData);
         
-        fprintf(stderr, "Uploaded mesh %u: %u vertices, %u indices\n", 
+        METAL_DEBUG("Uploaded mesh %u: %u vertices, %u indices", 
                 i, mesh->vertex_count, mesh->index_count);
     }
     
-    fprintf(stderr, "Successfully uploaded model '%s' with %u meshes\n", 
+    METAL_INFO("Successfully uploaded model '%s' with %u meshes", 
             metalModel->name, metalModel->meshCount);
     
     return (MetalModelHandle)metalModel;
@@ -523,89 +623,39 @@ void metal_engine_set_uploaded_model(MetalEngine* engine, MetalModelHandle model
     MetalEngineImpl* impl = (MetalEngineImpl*)engine;
     
     // Release previous model if any
-    if (impl->uploadedModel) {
-        metal_engine_free_model((MetalModelHandle)impl->uploadedModel);
+    if (impl->resources.uploadedModel) {
+        metal_engine_free_model((MetalModelHandle)impl->resources.uploadedModel);
     }
     
-    impl->uploadedModel = (MetalModel*)model;
-    fprintf(stderr, "Set uploaded model for rendering: %s\n", 
-            impl->uploadedModel ? impl->uploadedModel->name : "NULL");
+    impl->resources.uploadedModel = (MetalModel*)model;
+    METAL_INFO("Set uploaded model for rendering: %s", 
+            impl->resources.uploadedModel ? impl->resources.uploadedModel->name : "NULL");
 }
 
 // Render a specific model (direct Metal encoder version)
 void metal_engine_render_model_direct(MetalEngine* engine, MetalModelHandle model, void* renderEncoder) {
     if (!engine || !model || !renderEncoder) {
-        fprintf(stderr, "Invalid parameters for model rendering\n");
+        METAL_ERROR("Invalid parameters for model rendering");
         return;
     }
     
-    // MetalEngineImpl* impl = (MetalEngineImpl*)engine; // Unused variable
     MetalModel* metalModel = (MetalModel*)model;
     id<MTLRenderCommandEncoder> encoder = (__bridge id<MTLRenderCommandEncoder>)renderEncoder;
     
-    fprintf(stderr, "Rendering model: %s with %u meshes\n", metalModel->name, metalModel->meshCount);
-    
-    // Render each mesh
-    for (uint32_t i = 0; i < metalModel->meshCount; i++) {
-        id<MTLBuffer> vertexBuffer = metalModel->vertexBuffers[i];
-        id<MTLBuffer> indexBuffer = metalModel->indexBuffers[i];
-        uint32_t indexCount = metalModel->indexCounts[i];
-        
-        if (!vertexBuffer || !indexBuffer || indexCount == 0) {
-            fprintf(stderr, "Invalid mesh %u for rendering\n", i);
-            continue;
-        }
-        
-        fprintf(stderr, "Rendering mesh %u: vertexBuffer=%p, indexBuffer=%p, indexCount=%u\n", 
-                i, vertexBuffer, indexBuffer, indexCount);
-        
-        // Set vertex buffer
-        [encoder setVertexBuffer:vertexBuffer offset:0 atIndex:BufferIndexVertices];
-        
-        // Draw indexed primitives
-        fprintf(stderr, "Drawing mesh %u: indexCount=%u, indexBuffer.length=%lu\n", 
-                i, indexCount, (unsigned long)indexBuffer.length);
-        fprintf(stderr, "Buffer pointer during draw: %p\n", indexBuffer);
-        [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
-                                indexCount:indexCount
-                                 indexType:MTLIndexTypeUInt32
-                               indexBuffer:indexBuffer
-                         indexBufferOffset:0];
-    }
+    render_model_meshes(metalModel, encoder, 1); // Enable debug mode
 }
 
 // Render a specific model
 void metal_engine_render_model(MetalEngine* engine, MetalModelHandle model, MetalRenderCommandEncoderHandle renderEncoder) {
     if (!engine || !model || !renderEncoder) {
-        fprintf(stderr, "Invalid parameters for model rendering\n");
+        METAL_ERROR("Invalid parameters for model rendering");
         return;
     }
     
-    // MetalEngineImpl* impl = (MetalEngineImpl*)engine; // Unused variable
     MetalModel* metalModel = (MetalModel*)model;
     id<MTLRenderCommandEncoder> encoder = (__bridge id<MTLRenderCommandEncoder>)renderEncoder;
     
-    // Render each mesh
-    for (uint32_t i = 0; i < metalModel->meshCount; i++) {
-        id<MTLBuffer> vertexBuffer = metalModel->vertexBuffers[i];
-        id<MTLBuffer> indexBuffer = metalModel->indexBuffers[i];
-        uint32_t indexCount = metalModel->indexCounts[i];
-        
-        if (!vertexBuffer || !indexBuffer || indexCount == 0) {
-            fprintf(stderr, "Invalid mesh %u for rendering\n", i);
-            continue;
-        }
-        
-        // Set vertex buffer
-        [encoder setVertexBuffer:vertexBuffer offset:0 atIndex:BufferIndexVertices];
-        
-        // Draw indexed primitives
-        [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
-                            indexCount:indexCount
-                             indexType:MTLIndexTypeUInt32
-                           indexBuffer:indexBuffer
-                     indexBufferOffset:0];
-    }
+    render_model_meshes(metalModel, encoder, 0); // Disable debug mode
 }
 
 // Free uploaded model resources
@@ -653,10 +703,10 @@ int metal_engine_create_textures(MetalEngine* engine) {
     
     MetalEngineImpl* impl = (MetalEngineImpl*)engine;
     
-    NSError* error;
+    NSError* error = nil;
     
     // Create texture loader
-    MTKTextureLoader* textureLoader = [[MTKTextureLoader alloc] initWithDevice:impl->device];
+    MTKTextureLoader* textureLoader = [[MTKTextureLoader alloc] initWithDevice:impl->device.device];
     
     NSDictionary* textureLoaderOptions = @{
         MTKTextureLoaderOptionTextureUsage: @(MTLTextureUsageShaderRead),
@@ -664,16 +714,16 @@ int metal_engine_create_textures(MetalEngine* engine) {
     };
     
     // Try loading from asset catalog first
-    impl->colorMap = [textureLoader newTextureWithName:@"ColorMap"
+    impl->resources.colorMap = [textureLoader newTextureWithName:@"ColorMap"
                                           scaleFactor:1.0
                                                bundle:[NSBundle mainBundle]
                                               options:textureLoaderOptions
                                                 error:&error];
     
     // If that fails, try loading from the main bundle
-    if (!impl->colorMap) {
+    if (!impl->resources.colorMap) {
         fprintf(stderr, "Trying to load texture from main bundle...\n");
-        impl->colorMap = [textureLoader newTextureWithName:@"ColorMap"
+        impl->resources.colorMap = [textureLoader newTextureWithName:@"ColorMap"
                                               scaleFactor:1.0
                                                    bundle:[NSBundle mainBundle]
                                                   options:textureLoaderOptions
@@ -681,15 +731,15 @@ int metal_engine_create_textures(MetalEngine* engine) {
     }
     
     // If still no success, try loading the PNG file directly
-    if (!impl->colorMap) {
+    if (!impl->resources.colorMap) {
         fprintf(stderr, "Trying to load PNG file directly...\n");
         NSString* texturePath = [[NSBundle mainBundle] pathForResource:@"ColorMap" ofType:@"png"];
         if (texturePath) {
             fprintf(stderr, "Found texture at path: %s\n", texturePath.UTF8String);
-            impl->colorMap = [textureLoader newTextureWithContentsOfURL:[NSURL fileURLWithPath:texturePath]
+            impl->resources.colorMap = [textureLoader newTextureWithContentsOfURL:[NSURL fileURLWithPath:texturePath]
                                                               options:textureLoaderOptions
                                                                 error:&error];
-            if (impl->colorMap) {
+            if (impl->resources.colorMap) {
                 fprintf(stderr, "Texture loaded successfully from PNG file\n");
             } else {
                 fprintf(stderr, "Failed to load texture from PNG file: %s\n", error.localizedDescription.UTF8String);
@@ -700,19 +750,19 @@ int metal_engine_create_textures(MetalEngine* engine) {
     }
     
     // If still no success, create fallback texture
-    if (!impl->colorMap) {
+    if (!impl->resources.colorMap) {
         fprintf(stderr, "Creating fallback colored texture...\n");
-        impl->colorMap = (__bridge id<MTLTexture>)metal_engine_create_fallback_texture((__bridge MetalDeviceHandle)impl->device);
+        impl->resources.colorMap = (__bridge id<MTLTexture>)metal_engine_create_fallback_texture((__bridge MetalDeviceHandle)impl->device.device);
     }
     
-    if (!impl->colorMap) {
+    if (!impl->resources.colorMap) {
         fprintf(stderr, "Error creating texture\n");
         return 0;
     }
     
-    fprintf(stderr, "Texture loaded successfully\n");
-    fprintf(stderr, "Texture dimensions: %lu x %lu\n", (unsigned long)impl->colorMap.width, (unsigned long)impl->colorMap.height);
-    fprintf(stderr, "Texture pixel format: %lu\n", (unsigned long)impl->colorMap.pixelFormat);
+    METAL_INFO("Texture loaded successfully");
+    METAL_INFO("Texture dimensions: %lu x %lu", (unsigned long)impl->resources.colorMap.width, (unsigned long)impl->resources.colorMap.height);
+    METAL_INFO("Texture pixel format: %lu", (unsigned long)impl->resources.colorMap.pixelFormat);
     
     
     
@@ -741,9 +791,9 @@ void metal_engine_update_dynamic_buffer_state(MetalEngine* engine) {
     
     MetalEngineImpl* impl = (MetalEngineImpl*)engine;
     
-    impl->uniformBufferIndex = (impl->uniformBufferIndex + 1) % kMaxBuffersInFlight;
-    impl->uniformBufferOffset = kAlignedUniformsSize * impl->uniformBufferIndex;
-    impl->uniformBufferAddress = ((uint8_t*)impl->dynamicUniformBuffer.contents) + impl->uniformBufferOffset;
+    impl->resources.uniformBufferIndex = (impl->resources.uniformBufferIndex + 1) % kMaxBuffersInFlight;
+    impl->resources.uniformBufferOffset = kAlignedUniformsSize * impl->resources.uniformBufferIndex;
+    impl->resources.uniformBufferAddress = ((uint8_t*)impl->resources.dynamicUniformBuffer.contents) + impl->resources.uniformBufferOffset;
 }
 
 void metal_engine_update_game_state(MetalEngine* engine) {
@@ -751,14 +801,14 @@ void metal_engine_update_game_state(MetalEngine* engine) {
     
     MetalEngineImpl* impl = (MetalEngineImpl*)engine;
     
-    MetalUniforms* uniforms = (MetalUniforms*)impl->uniformBufferAddress;
+    MetalUniforms* uniforms = (MetalUniforms*)impl->resources.uniformBufferAddress;
     
     // Set projection matrix
-    memcpy(uniforms->projectionMatrix, &impl->projectionMatrix, sizeof(float) * 16);
+    mat4_to_float_array(&impl->render.projectionMatrix, uniforms->projectionMatrix);
     
     // Create model matrix - rotate around the object's center
     vec3_t rotationAxis = vec3(1.0f, 1.0f, 0.0f);
-    mat4_t modelMatrix = metal_engine_matrix_rotation(impl->rotationAngle, rotationAxis);
+    mat4_t modelMatrix = metal_engine_matrix_rotation(impl->render.rotationAngle, rotationAxis);
     
     // Create view matrix - move camera back from origin
     mat4_t viewMatrix = metal_engine_matrix_translation(0.0f, 0.0f, -8.0f);
@@ -767,13 +817,13 @@ void metal_engine_update_game_state(MetalEngine* engine) {
     // This ensures the object rotates around its own center, not around the camera
     mat4_t modelViewMatrix = mat4_mul_mat4(viewMatrix, modelMatrix);
     
-    memcpy(uniforms->modelViewMatrix, &modelViewMatrix, sizeof(float) * 16);
-    memcpy(uniforms->modelMatrix, &modelMatrix, sizeof(float) * 16);
-    memcpy(uniforms->viewMatrix, &viewMatrix, sizeof(float) * 16);
+    mat4_to_float_array(&modelViewMatrix, uniforms->modelViewMatrix);
+    mat4_to_float_array(&modelMatrix, uniforms->modelMatrix);
+    mat4_to_float_array(&viewMatrix, uniforms->viewMatrix);
     
     // Calculate normal matrix
     mat4_t normalMatrix = mat4_inverse(mat4_transpose(modelMatrix));
-    memcpy(uniforms->normalMatrix, &normalMatrix, sizeof(float) * 16);
+    mat4_to_float_array(&normalMatrix, uniforms->normalMatrix);
     
     // Calculate camera position
     mat4_t invViewMatrix = mat4_inverse(viewMatrix);
@@ -782,9 +832,9 @@ void metal_engine_update_game_state(MetalEngine* engine) {
     uniforms->cameraPosition[1] = cameraPos.y;
     uniforms->cameraPosition[2] = cameraPos.z;
     
-    uniforms->time = impl->rotationAngle;
+    uniforms->time = impl->render.rotationAngle;
     
-    impl->rotationAngle += 0.01f;
+    impl->render.rotationAngle += 0.01f;
 }
 
 void metal_engine_update_game_state_from_engine_state(MetalEngine* engine, void* engineState) {
@@ -796,7 +846,7 @@ void metal_engine_update_game_state_from_engine_state(MetalEngine* engine, void*
     }
     
     MetalEngineImpl* impl = (MetalEngineImpl*)engine;
-    MetalUniforms* uniforms = (MetalUniforms*)impl->uniformBufferAddress;
+    MetalUniforms* uniforms = (MetalUniforms*)impl->resources.uniformBufferAddress;
     
     // Impl and uniforms accessed silently
     
@@ -832,14 +882,12 @@ void metal_engine_update_game_state_from_engine_state(MetalEngine* engine, void*
     memcpy(uniforms->cameraPosition, cameraPosition, sizeof(float) * 3);
     
     // Use a simple time value for animation (can be replaced with actual time later)
-    uniforms->time = impl->rotationAngle;
+    uniforms->time = impl->render.rotationAngle;
     
     // Matrix values updated silently
 }
 
 void metal_engine_render_frame(MetalEngine* engine, MetalViewHandle view, void* engineState) {
-    /* NSLog(@"=== RENDER FRAME START ==="); */
-    
     if (!engine || !view || !engineState) {
         NSLog(@"ERROR: Render frame: engine=%p, view=%p, or engineState=%p is NULL", engine, view, engineState);
         return;
@@ -848,60 +896,45 @@ void metal_engine_render_frame(MetalEngine* engine, MetalViewHandle view, void* 
     MetalEngineImpl* impl = (MetalEngineImpl*)engine;
     MTKView* mtkView = (__bridge MTKView*)view;
     
-    /* NSLog(@"Render frame: engine=%p, view=%p, mtkView=%p, engineState=%p", engine, view, mtkView, engineState); */
-    
     // Wait for available buffer
     // Note: In a real implementation, we would use a semaphore here
     
     // Create command buffer
-    id<MTLCommandBuffer> commandBuffer = [impl->commandQueue commandBuffer];
+    id<MTLCommandBuffer> commandBuffer = [impl->device.commandQueue commandBuffer];
     commandBuffer.label = @"MyCommand";
-    
-    /* NSLog(@"About to update buffer state..."); */
     
     // Update buffer state
     metal_engine_update_dynamic_buffer_state(engine);
     
-    /* NSLog(@"About to update game state..."); */
-    
     // Update game state using engine state directly
     metal_engine_update_game_state_from_engine_state(engine, engineState);
-    
-    /* NSLog(@"About to get render pass descriptor..."); */
     
     // Get render pass descriptor
     MTLRenderPassDescriptor* renderPassDescriptor = mtkView.currentRenderPassDescriptor;
     
-    /* NSLog(@"Render pass descriptor: %p", renderPassDescriptor); */
-    
     if (renderPassDescriptor != nil) {
-        /* fprintf(stderr, "Creating render encoder...\n"); */
-        
         // Create render command encoder
         id<MTLRenderCommandEncoder> renderEncoder = [commandBuffer renderCommandEncoderWithDescriptor:renderPassDescriptor];
         renderEncoder.label = @"MyRenderEncoder";
-        
-        /* fprintf(stderr, "Render encoder: %p, pipeline state: %p, depth state: %p\n", 
-                renderEncoder, impl->renderPipelineState, impl->depthState); */
         
         [renderEncoder pushDebugGroup:@"DrawBox"];
         
         [renderEncoder setFrontFacingWinding:MTLWindingCounterClockwise];
         [renderEncoder setCullMode:MTLCullModeBack];
-        [renderEncoder setRenderPipelineState:impl->renderPipelineState];
-        [renderEncoder setDepthStencilState:impl->depthState];
+        [renderEncoder setRenderPipelineState:impl->device.renderPipelineState];
+        [renderEncoder setDepthStencilState:impl->device.depthState];
         
         // Set uniform buffer
-        [renderEncoder setVertexBuffer:impl->dynamicUniformBuffer
-                                offset:impl->uniformBufferOffset
+        [renderEncoder setVertexBuffer:impl->resources.dynamicUniformBuffer
+                                offset:impl->resources.uniformBufferOffset
                                atIndex:BufferIndexUniforms];
         
-        [renderEncoder setFragmentBuffer:impl->dynamicUniformBuffer
-                                  offset:impl->uniformBufferOffset
+        [renderEncoder setFragmentBuffer:impl->resources.dynamicUniformBuffer
+                                  offset:impl->resources.uniformBufferOffset
                                  atIndex:BufferIndexUniforms];
         
         // Set texture
-        [renderEncoder setFragmentTexture:impl->colorMap atIndex:TextureIndexColorMap];
+        [renderEncoder setFragmentTexture:impl->resources.colorMap atIndex:TextureIndexColorMap];
         
         // Check if we have any entities to render
         EngineStateStruct* engineStateStruct = (EngineStateStruct*)engineState;
@@ -926,10 +959,9 @@ void metal_engine_render_frame(MetalEngine* engine, MetalViewHandle view, void* 
                     }
                 }
             }
-        } else if (impl->uploadedModel) {
+        } else if (impl->resources.uploadedModel) {
             // Fallback: render uploaded model if no entities but model exists
-            /* fprintf(stderr, "Rendering uploaded model: %s\n", impl->uploadedModel->name); */
-            metal_engine_render_model_direct(engine, (MetalModelHandle)impl->uploadedModel, (__bridge void*)renderEncoder);
+            metal_engine_render_model_direct(engine, (MetalModelHandle)impl->resources.uploadedModel, (__bridge void*)renderEncoder);
         } else {
             // No entities and no uploaded model - just clear the screen
             fprintf(stderr, "\rNo entities to render, clearing screen");
@@ -945,7 +977,7 @@ void metal_engine_render_frame(MetalEngine* engine, MetalViewHandle view, void* 
     
     [commandBuffer commit];
     
-    impl->frameCount++;
+    impl->render.frameCount++;
 }
 
 void metal_engine_resize_viewport(MetalEngine* engine, int width, int height) {
@@ -953,13 +985,13 @@ void metal_engine_resize_viewport(MetalEngine* engine, int width, int height) {
     
     MetalEngineImpl* impl = (MetalEngineImpl*)engine;
     
-    impl->viewportWidth = width;
-    impl->viewportHeight = height;
+    impl->render.viewportWidth = width;
+    impl->render.viewportHeight = height;
     
     float aspect = (float)width / (float)height;
-    impl->projectionMatrix = metal_engine_matrix_perspective_right_hand(65.0f * (M_PI / 180.0f), aspect, 0.1f, 100.0f);
+    impl->render.projectionMatrix = metal_engine_matrix_perspective_right_hand(65.0f * (M_PI / 180.0f), aspect, 0.1f, 100.0f);
     
-    fprintf(stderr, "Viewport resized: %dx%d\n", width, height);
+    METAL_INFO("Viewport resized: %dx%d", width, height);
 }
 
 
@@ -971,8 +1003,8 @@ void metal_engine_enable_object_capture(MetalEngine* engine) {
     MetalEngineImpl* impl = (MetalEngineImpl*)engine;
     
     if (@available(macOS 15.0, *)) {
-        impl->supportsObjectCapture = 1;
-        fprintf(stderr, "Object capture enabled for Metal 3.0\n");
+        impl->features.supportsObjectCapture = 1;
+        METAL_INFO("Object capture enabled for Metal 3.0");
     }
 }
 
@@ -982,8 +1014,8 @@ void metal_engine_enable_mesh_shading(MetalEngine* engine) {
     MetalEngineImpl* impl = (MetalEngineImpl*)engine;
     
     if (@available(macOS 15.0, *)) {
-        impl->supportsMeshShading = 1;
-        fprintf(stderr, "Mesh shading enabled for Metal 3.0\n");
+        impl->features.supportsMeshShading = 1;
+        METAL_INFO("Mesh shading enabled for Metal 3.0");
     }
 }
 
@@ -993,8 +1025,8 @@ void metal_engine_enable_dynamic_libraries(MetalEngine* engine) {
     MetalEngineImpl* impl = (MetalEngineImpl*)engine;
     
     if (@available(macOS 15.0, *)) {
-        impl->supportsDynamicLibraries = 1;
-        fprintf(stderr, "Dynamic libraries enabled for Metal 3.0\n");
+        impl->features.supportsDynamicLibraries = 1;
+        METAL_INFO("Dynamic libraries enabled for Metal 3.0");
     }
 }
 
@@ -1004,11 +1036,11 @@ void metal_engine_report_metal_features(MetalEngine* engine) {
     MetalEngineImpl* impl = (MetalEngineImpl*)engine;
     
     if (@available(macOS 15.0, *)) {
-        fprintf(stderr, "=== Metal 3.0 Feature Report ===\n");
-        fprintf(stderr, "Device: %s\n", impl->device.name.UTF8String);
-        fprintf(stderr, "Max Threads Per Threadgroup: %lu\n", (unsigned long)impl->device.maxThreadsPerThreadgroup.width);
-        fprintf(stderr, "Max Threads Per Threadgroup (3D): %lu\n", (unsigned long)impl->device.maxThreadsPerThreadgroup.depth);
-        fprintf(stderr, "=================================\n");
+        METAL_INFO("=== Metal 3.0 Feature Report ===");
+        METAL_INFO("Device: %s", impl->device.device.name.UTF8String);
+        METAL_INFO("Max Threads Per Threadgroup: %lu", (unsigned long)impl->device.device.maxThreadsPerThreadgroup.width);
+        METAL_INFO("Max Threads Per Threadgroup (3D): %lu", (unsigned long)impl->device.device.maxThreadsPerThreadgroup.depth);
+        METAL_INFO("=================================");
     }
 }
 
@@ -1023,8 +1055,8 @@ MetalTextureHandle metal_engine_create_fallback_texture(MetalDeviceHandle device
     
     // Create texture descriptor
     MTLTextureDescriptor* fallbackDesc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm_sRGB
-                                                                                            width:512
-                                                                                           height:512
+                                                                                            width:FALLBACK_TEXTURE_SIZE
+                                                                                           height:FALLBACK_TEXTURE_SIZE
                                                                                         mipmapped:NO];
     fallbackDesc.usage = MTLTextureUsageShaderRead;
     
@@ -1032,11 +1064,11 @@ MetalTextureHandle metal_engine_create_fallback_texture(MetalDeviceHandle device
     fallbackTexture.label = @"FallbackColorMap";
     
     // Fill with checkerboard pattern
-    uint8_t* textureData = malloc(512 * 512 * 4);
-    for (int y = 0; y < 512; y++) {
-        for (int x = 0; x < 512; x++) {
-            int index = (y * 512 + x) * 4;
-            int checker = ((x / 64) + (y / 64)) % 2;
+    uint8_t* textureData = malloc(FALLBACK_TEXTURE_SIZE * FALLBACK_TEXTURE_SIZE * 4);
+    for (int y = 0; y < FALLBACK_TEXTURE_SIZE; y++) {
+        for (int x = 0; x < FALLBACK_TEXTURE_SIZE; x++) {
+            int index = (y * FALLBACK_TEXTURE_SIZE + x) * 4;
+            int checker = ((x / CHECKERBOARD_TILE_SIZE) + (y / CHECKERBOARD_TILE_SIZE)) % 2;
             
             if (checker == 0) {
                 textureData[index + 0] = 255; // Red
@@ -1052,13 +1084,13 @@ MetalTextureHandle metal_engine_create_fallback_texture(MetalDeviceHandle device
         }
     }
     
-    [fallbackTexture replaceRegion:MTLRegionMake2D(0, 0, 512, 512)
+    [fallbackTexture replaceRegion:MTLRegionMake2D(0, 0, FALLBACK_TEXTURE_SIZE, FALLBACK_TEXTURE_SIZE)
                        mipmapLevel:0
                          withBytes:textureData
-                       bytesPerRow:512 * 4];
+                       bytesPerRow:FALLBACK_TEXTURE_SIZE * 4];
     
     free(textureData);
-    fprintf(stderr, "Fallback texture created successfully with checkerboard pattern\n");
+    METAL_INFO("Fallback texture created successfully with checkerboard pattern");
     
     return (__bridge_retained MetalTextureHandle)fallbackTexture;
 }
@@ -1067,7 +1099,7 @@ void metal_engine_print_device_info(MetalDeviceHandle device) {
     if (!device) return;
     
     id<MTLDevice> mtlDevice = (__bridge id<MTLDevice>)device;
-    fprintf(stderr, "Device info print requested for: %s\n", mtlDevice.name.UTF8String);
+    METAL_INFO("Device info print requested for: %s", mtlDevice.name.UTF8String);
 }
 
 // Matrix utility functions
@@ -1112,5 +1144,5 @@ void metal_engine_set_engine_state(MetalEngine* engine, void* engineState) {
     if (!engine) return;
     
     MetalEngineImpl* impl = (MetalEngineImpl*)engine;
-    impl->engineState = engineState;
+    impl->render.engineState = engineState;
 }
