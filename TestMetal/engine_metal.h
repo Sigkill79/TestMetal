@@ -111,6 +111,9 @@ void metal_engine_set_uploaded_model(MetalEngine* engine, MetalModelHandle model
 // Render a specific model (direct Metal encoder version)
 void metal_engine_render_model_direct(MetalEngine* engine, MetalModelHandle model, void* renderEncoder);
 
+// Render a specific model with custom model matrix (for per-entity rendering)
+void metal_engine_render_model_with_matrix(MetalEngine* engine, MetalModelHandle model, void* renderEncoder, mat4_t modelMatrix);
+
 // Free uploaded model resources
 void metal_engine_free_model(MetalModelHandle model);
 

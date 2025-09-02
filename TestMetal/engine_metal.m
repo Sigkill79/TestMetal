@@ -645,6 +645,45 @@ void metal_engine_render_model_direct(MetalEngine* engine, MetalModelHandle mode
     render_model_meshes(metalModel, encoder, 1); // Enable debug mode
 }
 
+// Render a specific model with custom model matrix (for per-entity rendering)
+void metal_engine_render_model_with_matrix(MetalEngine* engine, MetalModelHandle model, void* renderEncoder, mat4_t modelMatrix) {
+    if (!engine || !model || !renderEncoder) {
+        METAL_ERROR("Invalid parameters for model rendering with matrix");
+        return;
+    }
+    
+    MetalEngineImpl* impl = (MetalEngineImpl*)engine;
+    MetalModel* metalModel = (MetalModel*)model;
+    id<MTLRenderCommandEncoder> encoder = (__bridge id<MTLRenderCommandEncoder>)renderEncoder;
+    
+    // Update the uniform buffer with the entity's model matrix
+    MetalUniforms* uniforms = (MetalUniforms*)impl->resources.uniformBufferAddress;
+    
+    // Update model matrix for this entity
+    mat4_to_float_array(&modelMatrix, uniforms->modelMatrix);
+    
+    // Recalculate modelViewMatrix with the new model matrix
+    mat4_t viewMatrix = metal_engine_matrix_translation(0.0f, 0.0f, -8.0f);
+    mat4_t modelViewMatrix = mat4_mul_mat4(modelMatrix, viewMatrix);
+    mat4_to_float_array(&modelViewMatrix, uniforms->modelViewMatrix);
+    
+    // Recalculate normal matrix
+    mat4_t normalMatrix = mat4_transpose(mat4_inverse(modelViewMatrix));
+    mat4_to_float_array(&normalMatrix, uniforms->normalMatrix);
+    
+    // Bind uniform buffer to encoder for this entity
+    [encoder setVertexBuffer:impl->resources.dynamicUniformBuffer
+                      offset:impl->resources.uniformBufferOffset
+                     atIndex:BufferIndexUniforms];
+    
+    [encoder setFragmentBuffer:impl->resources.dynamicUniformBuffer
+                        offset:impl->resources.uniformBufferOffset
+                       atIndex:BufferIndexUniforms];
+    
+    // Render all meshes in the model
+    render_model_meshes(metalModel, encoder, 0);
+}
+
 // Render a specific model
 void metal_engine_render_model(MetalEngine* engine, MetalModelHandle model, MetalRenderCommandEncoderHandle renderEncoder) {
     if (!engine || !model || !renderEncoder) {
@@ -924,16 +963,7 @@ void metal_engine_render_frame(MetalEngine* engine, MetalViewHandle view, void* 
         [renderEncoder setRenderPipelineState:impl->device.renderPipelineState];
         [renderEncoder setDepthStencilState:impl->device.depthState];
         
-        // Set uniform buffer
-        [renderEncoder setVertexBuffer:impl->resources.dynamicUniformBuffer
-                                offset:impl->resources.uniformBufferOffset
-                               atIndex:BufferIndexUniforms];
-        
-        [renderEncoder setFragmentBuffer:impl->resources.dynamicUniformBuffer
-                                  offset:impl->resources.uniformBufferOffset
-                                 atIndex:BufferIndexUniforms];
-        
-        // Set texture
+        // Set texture (uniforms will be bound per entity)
         [renderEncoder setFragmentTexture:impl->resources.colorMap atIndex:TextureIndexColorMap];
         
         // Check if we have any entities to render
@@ -943,28 +973,26 @@ void metal_engine_render_frame(MetalEngine* engine, MetalViewHandle view, void* 
         // Metal render frame called silently
         
         if (entityCount > 0) {
-            // Render entities using the world system
-            // Rendering entities silently
-            world_render(engineStateStruct->world, engine, engineState);
-            
-            // After world rendering, render the first entity's model
+            // Render entities using the world system with per-entity matrices
             if (engineStateStruct->world) {
                 for (uint32_t i = 0; i < engineStateStruct->world->max_entities; i++) {
                     WorldEntity* entity = &engineStateStruct->world->entities[i];
                     if (entity->id != 0 && entity->is_active && entity->metal_model) {
-                        // Render the entity's model
-                        fprintf(stderr, "About to render entity %u model: %p\n", entity->id, entity->metal_model);
-                        metal_engine_render_model_direct(engine, entity->metal_model, (__bridge void*)renderEncoder);
-                        break; // Only render the first entity for now
+                        // Get the entity's transformation matrix
+                        mat4_t entityTransform = entity_get_transform_matrix(entity);
+                        
+                        // Render the entity's model with its specific transformation matrix
+                        metal_engine_render_model_with_matrix(engine, entity->metal_model, (__bridge void*)renderEncoder, entityTransform);
                     }
                 }
             }
         } else if (impl->resources.uploadedModel) {
             // Fallback: render uploaded model if no entities but model exists
-            metal_engine_render_model_direct(engine, (MetalModelHandle)impl->resources.uploadedModel, (__bridge void*)renderEncoder);
+            mat4_t identityMatrix = mat4_identity();
+            metal_engine_render_model_with_matrix(engine, (MetalModelHandle)impl->resources.uploadedModel, (__bridge void*)renderEncoder, identityMatrix);
         } else {
             // No entities and no uploaded model - just clear the screen
-            fprintf(stderr, "\rNo entities to render, clearing screen");
+            METAL_INFO("No entities to render, clearing screen");
             // Don't draw anything, just let the clear color show through
         }
         

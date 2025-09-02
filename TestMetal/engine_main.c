@@ -37,10 +37,7 @@ EngineStateStruct* engine_initialize(MetalViewHandle view, float viewport_width,
                 engineState->camera_target.z);
         
         engineState->view_matrix = mat4_look_at(engineState->camera_position, engineState->camera_target, engineState->camera_up);
-        
-        // Initialize model matrix to identity
-        engineState->model_matrix = mat4_identity();
-        
+    
         // Debug: Print camera position AFTER look_at
         fprintf(stderr, "Camera position AFTER look_at: (%.3f, %.3f, %.3f)\n", 
                 engineState->camera_position.x, 

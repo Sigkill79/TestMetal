@@ -305,16 +305,7 @@ void entity_render(WorldEntity* entity, MetalEngine* metal_engine, void* engine_
         return;
     }
     
-    // Get the entity's transformation matrix
-    mat4_t entityTransform = entity_get_transform_matrix(entity);
-    
-    // Update the engine state's model matrix with the entity's transform
-    EngineStateStruct* engineState = (EngineStateStruct*)engine_state;
-    engineState->model_matrix = entityTransform;
-    
-    // The actual rendering will be handled by the Metal engine's render_model function
-    // which is called from the Metal render frame after we update the model matrix
-    // Entity rendered silently
+   // TODO: When we have defined what the world is
 }
 
 // ============================================================================
@@ -330,7 +321,7 @@ mat4_t entity_get_transform_matrix(const WorldEntity* entity) {
     mat4_t translation = mat4_translation(entity->position);
     mat4_t rotation = quat_to_mat4(entity->orientation);
     
-    return mat4_mul_mat4(translation, rotation);
+    return mat4_mul_mat4(rotation,translation);
 }
 
 int entity_is_valid(const WorldEntity* entity) {
