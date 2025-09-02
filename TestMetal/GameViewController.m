@@ -18,6 +18,7 @@
 
 - (void)viewDidLoad
 {
+    NSLog(@"viewDidLoad");
     [super viewDidLoad];
 
     _view = (MTKView *)self.view;
@@ -39,7 +40,10 @@
     float width = _view.drawableSize.width > 0 ? _view.drawableSize.width : 800.0f;
     float height = _view.drawableSize.height > 0 ? _view.drawableSize.height : 600.0f;
     
-    _engineState = initialize_with_metal((__bridge MetalViewHandle)_view, width, height);
+    // Get the bundle resource path
+    NSString *resourcePath = [[NSBundle mainBundle] resourcePath];
+    
+    _engineState = engine_initialize((__bridge MetalViewHandle)_view, width, height, [resourcePath UTF8String]);
     
     if (!_engineState) {
         NSLog(@"❌ Failed to initialize engine with Metal");
@@ -62,10 +66,11 @@
 
 - (void)drawInMTKView:(nonnull MTKView *)view {
     // Update engine (which includes rendering) using engine_main interface
-    update(_engineState);
+    engine_update(_engineState);
 }
 
 - (void)mtkView:(nonnull MTKView *)view drawableSizeWillChange:(CGSize)size {
+    NSLog(@"📏 drawableSizeWillChange called: %.0f x %.0f", size.width, size.height);
     // Update viewport size using engine_main interface
     engine_resize_viewport(_engineState, size.width, size.height);
 }

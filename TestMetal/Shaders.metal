@@ -23,15 +23,15 @@ struct Vertex {
     float3 normal   [[attribute(2)]];
 };
 
-// Define uniform structure for Metal shaders
+// Define uniform structure for Metal shaders - must match MetalUniforms in engine_metal.m exactly
 struct Uniforms {
-    float4x4 projectionMatrix;
-    float4x4 modelViewMatrix;
-    float4x4 modelMatrix;
-    float4x4 viewMatrix;
-    float4x4 normalMatrix;
-    float3 cameraPosition;
-    float time;
+    float projectionMatrix[16];    // 4x4 matrix as float array
+    float modelViewMatrix[16];     // 4x4 matrix as float array
+    float modelMatrix[16];         // 4x4 matrix as float array
+    float viewMatrix[16];          // 4x4 matrix as float array
+    float normalMatrix[16];        // 4x4 matrix as float array
+    float cameraPosition[3];       // 3D vector
+    float time;                    // float
 };
 
 // Vertex output structure
@@ -49,14 +49,44 @@ vertex ColorInOut vertexShader(Vertex in [[stage_in]],
     ColorInOut out;
 
     float4 position = float4(in.position, 1.0);
-    // Apply transformations in the correct order: view * model * position
-    // This ensures the object rotates around its own center first, then gets moved to camera view
-    out.position = uniforms.projectionMatrix * uniforms.viewMatrix * uniforms.modelMatrix * position;
+    
+    // Convert float arrays to float4x4 matrices for Metal shader operations
+    float4x4 projectionMatrix = float4x4(
+        float4(uniforms.projectionMatrix[0], uniforms.projectionMatrix[1], uniforms.projectionMatrix[2], uniforms.projectionMatrix[3]),
+        float4(uniforms.projectionMatrix[4], uniforms.projectionMatrix[5], uniforms.projectionMatrix[6], uniforms.projectionMatrix[7]),
+        float4(uniforms.projectionMatrix[8], uniforms.projectionMatrix[9], uniforms.projectionMatrix[10], uniforms.projectionMatrix[11]),
+        float4(uniforms.projectionMatrix[12], uniforms.projectionMatrix[13], uniforms.projectionMatrix[14], uniforms.projectionMatrix[15])
+    );
+    
+    float4x4 modelViewMatrix = float4x4(
+        float4(uniforms.modelViewMatrix[0], uniforms.modelViewMatrix[1], uniforms.modelViewMatrix[2], uniforms.modelViewMatrix[3]),
+        float4(uniforms.modelViewMatrix[4], uniforms.modelViewMatrix[5], uniforms.modelViewMatrix[6], uniforms.modelViewMatrix[7]),
+        float4(uniforms.modelViewMatrix[8], uniforms.modelViewMatrix[9], uniforms.modelViewMatrix[10], uniforms.modelViewMatrix[11]),
+        float4(uniforms.modelViewMatrix[12], uniforms.modelViewMatrix[13], uniforms.modelViewMatrix[14], uniforms.modelViewMatrix[15])
+    );
+    
+    float4x4 normalMatrix = float4x4(
+        float4(uniforms.normalMatrix[0], uniforms.normalMatrix[1], uniforms.normalMatrix[2], uniforms.normalMatrix[3]),
+        float4(uniforms.normalMatrix[4], uniforms.normalMatrix[5], uniforms.normalMatrix[6], uniforms.normalMatrix[7]),
+        float4(uniforms.normalMatrix[8], uniforms.normalMatrix[9], uniforms.normalMatrix[10], uniforms.normalMatrix[11]),
+        float4(uniforms.normalMatrix[12], uniforms.normalMatrix[13], uniforms.normalMatrix[14], uniforms.normalMatrix[15])
+    );
+    
+    float4x4 modelMatrix = float4x4(
+        float4(uniforms.modelMatrix[0], uniforms.modelMatrix[1], uniforms.modelMatrix[2], uniforms.modelMatrix[3]),
+        float4(uniforms.modelMatrix[4], uniforms.modelMatrix[5], uniforms.modelMatrix[6], uniforms.modelMatrix[7]),
+        float4(uniforms.modelMatrix[8], uniforms.modelMatrix[9], uniforms.modelMatrix[10], uniforms.modelMatrix[11]),
+        float4(uniforms.modelMatrix[12], uniforms.modelMatrix[13], uniforms.modelMatrix[14], uniforms.modelMatrix[15])
+    );
+    
+    // Use the pre-computed modelViewMatrix from the engine
+    // This ensures proper transformation order: projection * (view * model) * position
+    out.position = projectionMatrix * modelViewMatrix * position;
     out.texCoord = in.texcoord;
     
     // Metal 3.0: Calculate world space normal and position for lighting
-    out.worldNormal = (uniforms.modelMatrix * float4(in.normal, 0.0)).xyz;
-    out.worldPosition = (uniforms.modelMatrix * position).xyz;
+    out.worldNormal = (normalMatrix * float4(in.normal, 0.0)).xyz;
+    out.worldPosition = (modelMatrix * position).xyz;
 
     return out;
 }
@@ -78,7 +108,7 @@ fragment float4 fragmentShader(ColorInOut in [[stage_in]],
     
     // Add ambient lighting
     float3 ambient = float3(0.2, 0.2, 0.2);
-    float3 diffuseColor = float3(diffuse, diffuse, diffuse);
+    float3 diffuseColor = float3(0.8, 0.8, 0.8) * diffuse;
     
     float3 finalColor = (ambient + diffuseColor) * float3(colorSample.rgb);
     

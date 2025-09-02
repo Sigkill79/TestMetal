@@ -5,6 +5,7 @@
 extern "C" {
 #endif
 
+#include "engine_model.h"
 #include "engine_math.h"
 #include <stdint.h>
 
@@ -21,6 +22,7 @@ typedef struct MetalTexture* MetalTextureHandle;
 typedef struct MetalSamplerState* MetalSamplerStateHandle;
 typedef struct MetalDepthStencilState* MetalDepthStencilStateHandle;
 typedef struct MetalMesh* MetalMeshHandle;
+typedef struct MetalModel* MetalModelHandle;
 typedef struct MetalVertexDescriptor* MetalVertexDescriptorHandle;
 typedef struct MetalLibrary* MetalLibraryHandle;
 typedef struct MetalFunction* MetalFunctionHandle;
@@ -40,8 +42,8 @@ typedef struct {
     MetalDepthStencilStateHandle depthState;
     MetalTextureHandle colorMap;
     MetalVertexDescriptorHandle mtlVertexDescriptor;
-    MetalTextureHandle blurredTexture;
     MetalMeshHandle mesh;
+    MetalModelHandle uploadedModel;
     
     // Buffer management
     uint32_t uniformBufferOffset;
@@ -100,17 +102,32 @@ int metal_engine_create_textures(MetalEngine* engine);
 // Create mesh
 int metal_engine_create_mesh(MetalEngine* engine);
 
+// Upload Model3D to Metal buffers and return handle
+MetalModelHandle metal_engine_upload_model(MetalEngine* engine, Model3D* model);
+
+// Set the uploaded model for rendering
+void metal_engine_set_uploaded_model(MetalEngine* engine, MetalModelHandle model);
+
+// Render a specific model (direct Metal encoder version)
+void metal_engine_render_model_direct(MetalEngine* engine, MetalModelHandle model, void* renderEncoder);
+
+// Free uploaded model resources
+void metal_engine_free_model(MetalModelHandle model);
+
 // Update dynamic buffer state
 void metal_engine_update_dynamic_buffer_state(MetalEngine* engine);
 
 // Update game state and uniforms
 void metal_engine_update_game_state(MetalEngine* engine);
+void metal_engine_update_game_state_from_engine_state(MetalEngine* engine, void* engineState);
 
 // Render frame
-void metal_engine_render_frame(MetalEngine* engine, MetalViewHandle view);
+void metal_engine_render_frame(MetalEngine* engine, MetalViewHandle view, void* engineState);
 
 // Handle viewport resize
 void metal_engine_resize_viewport(MetalEngine* engine, int width, int height);
+
+
 
 // Metal 3.0 feature enablement
 void metal_engine_enable_object_capture(MetalEngine* engine);

@@ -1,4 +1,6 @@
 #import "engine_metal.h"
+#import "engine_main.h"
+#import "engine_world.h"
 // engine_metal_shaders.h removed to avoid typedef conflicts
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
@@ -30,14 +32,57 @@ typedef struct {
     float cameraPosition[3];       // 3D vector
     float time;                    // float
 } MetalUniforms;
+
+// MetalModel structure to hold uploaded model data
+typedef struct MetalModel {
+    __unsafe_unretained id<MTLBuffer>* vertexBuffers;      // Array of vertex buffers (one per mesh)
+    __unsafe_unretained id<MTLBuffer>* indexBuffers;       // Array of index buffers (one per mesh)
+    uint32_t* indexCounts;              // Array of index counts (one per mesh)
+    uint32_t meshCount;                 // Number of meshes in the model
+    char* name;                         // Model name
+} MetalModel;
+
 #import <MetalKit/MetalKit.h>
 #import <ModelIO/ModelIO.h>
-#import <MetalPerformanceShaders/MetalPerformanceShaders.h>
 #import <simd/simd.h>
 
 // ============================================================================
 // METAL ENGINE IMPLEMENTATION
 // ============================================================================
+
+// Forward declarations
+struct EngineStateStruct; // Forward declaration to avoid circular includes
+
+// Helper function to convert mat4_t to float array (column-major order for Metal)
+static void mat4_to_float_array(mat4_t* mat, float* arr) {
+    // Convert from mat4_t structure to column-major float array
+    // mat4_t stores: x, y, z, w where each is a vec4_t
+    // We need column-major order for Metal: [col0, col1, col2, col3]
+    
+    // Column 0: x components
+    arr[0] = mat->x.x;  // x.x
+    arr[1] = mat->x.y;  // x.y  
+    arr[2] = mat->x.z;  // x.z
+    arr[3] = mat->x.w;  // x.w
+    
+    // Column 1: y components
+    arr[4] = mat->y.x;  // y.x
+    arr[5] = mat->y.y;  // y.y
+    arr[6] = mat->y.z;  // y.z
+    arr[7] = mat->y.w;  // y.w
+    
+    // Column 2: z components
+    arr[8] = mat->z.x;  // z.x
+    arr[9] = mat->z.y;  // z.y
+    arr[10] = mat->z.z; // z.z
+    arr[11] = mat->z.w; // z.w
+    
+    // Column 3: w components
+    arr[12] = mat->w.x; // w.x
+    arr[13] = mat->w.y; // w.y
+    arr[14] = mat->w.z; // w.z
+    arr[15] = mat->w.w; // w.w
+}
 
 // Forward declarations for Metal objects
 typedef struct {
@@ -48,8 +93,8 @@ typedef struct {
     id<MTLDepthStencilState> depthState;
     id<MTLTexture> colorMap;
     MTLVertexDescriptor* mtlVertexDescriptor;
-    id<MTLTexture> blurredTexture;
     MTKMesh* mesh;
+    MetalModel* uploadedModel;
     
     // Buffer management
     uint32_t uniformBufferOffset;
@@ -64,6 +109,8 @@ typedef struct {
     
     // Matrix state
     mat4_t projectionMatrix;
+    mat4_t viewMatrix;
+    mat4_t modelMatrix;
     
     // Engine state
     int isInitialized;
@@ -79,8 +126,12 @@ typedef struct {
     // Engine integration
     void* engineState;
     
-    // Metal Performance Shaders
-    MPSImageGaussianBlur* gaussianBlur;
+    
+    
+    // Manual mesh buffers (for our custom cube)
+    id<MTLBuffer> vertexBuffer;
+    id<MTLBuffer> indexBuffer;
+    uint32_t indexCount;
     
 } MetalEngineImpl;
 
@@ -100,7 +151,7 @@ MetalEngine* metal_engine_init(void) {
     }
     
     // Initialize all pointers to NULL
-    memset(engine, 0, sizeof(MetalEngineImpl));
+    memset((void*)engine, 0, sizeof(MetalEngineImpl));
     
     // Set default values
     engine->viewportWidth = 800;
@@ -136,8 +187,23 @@ void metal_engine_shutdown(MetalEngine* engine) {
     
     // Release Metal objects
     if (impl->device) {
-        // Note: In a real implementation, we would release Metal objects here
-        // For now, we just free the engine structure
+        // Release our custom buffers
+        if (impl->vertexBuffer) {
+            // Note: In a real implementation, we would release Metal objects here
+            impl->vertexBuffer = nil;
+        }
+        if (impl->indexBuffer) {
+            // Note: In a real implementation, we would release Metal objects here
+            impl->indexBuffer = nil;
+        }
+        
+        // Release uploaded model
+        if (impl->uploadedModel) {
+            metal_engine_free_model((MetalModelHandle)impl->uploadedModel);
+            impl->uploadedModel = NULL;
+        }
+        
+        // Note: In a real implementation, we would release other Metal objects here
     }
     
     fprintf(stderr, "Metal engine shutdown\n");
@@ -200,6 +266,12 @@ int metal_engine_load_metal_with_view(MetalEngine* engine, MetalViewHandle view)
     depthStateDesc.depthWriteEnabled = YES;
     impl->depthState = [impl->device newDepthStencilStateWithDescriptor:depthStateDesc];
     
+    // Create render pipeline state (required for rendering)
+    if (!metal_engine_create_pipeline(engine)) {
+        fprintf(stderr, "Failed to create render pipeline state\n");
+        return 0;
+    }
+    
     // Initialize Metal 3.0 features
     metal_engine_enable_object_capture(engine);
     metal_engine_enable_mesh_shading(engine);
@@ -213,7 +285,7 @@ int metal_engine_load_metal_with_view(MetalEngine* engine, MetalViewHandle view)
 int metal_engine_create_buffers(MetalEngine* engine) {
     if (!engine) return 0;
     
-    MetalEngineImpl* impl = (MetalEngineImpl*)engine;
+    // MetalEngineImpl* impl = (MetalEngineImpl*)engine; // Unused variable
     
     // Note: In a real implementation, this would create Metal buffers
     // For now, we just mark it as successful
@@ -273,38 +345,287 @@ int metal_engine_create_mesh(MetalEngine* engine) {
     
     NSError* error;
     
-    // Create mesh buffer allocator
-    MTKMeshBufferAllocator* metalAllocator = [[MTKMeshBufferAllocator alloc] initWithDevice:impl->device];
+    // Create cube vertices manually with exact format we need
+    // Format: position (3 floats) + texcoord (2 floats) + normal (3 floats) = 8 floats = 32 bytes
     
-    // Create box mesh
-    MDLMesh* mdlMesh = [MDLMesh newBoxWithDimensions:(vector_float3){4, 4, 4}
-                                            segments:(vector_uint3){1, 1, 1}
-                                        geometryType:MDLGeometryTypeTriangles
-                                       inwardNormals:NO
-                                           allocator:metalAllocator];
+    // Cube vertices: 8 vertices for a cube
+    float vertices[] = {
+        // Front face
+        -1.0f, -1.0f,  1.0f,  0.0f, 0.0f,  0.0f,  0.0f,  1.0f,  // 0: bottom-left-front
+         1.0f, -1.0f,  1.0f,  1.0f, 0.0f,  0.0f,  0.0f,  1.0f,  // 1: bottom-right-front
+         1.0f,  1.0f,  1.0f,  1.0f, 1.0f,  0.0f,  0.0f,  1.0f,  // 2: top-right-front
+        -1.0f,  1.0f,  1.0f,  0.0f, 1.0f,  0.0f,  0.0f,  1.0f,  // 3: top-left-front
+        
+        // Back face
+        -1.0f, -1.0f, -1.0f,  0.0f, 0.0f,  0.0f,  0.0f, -1.0f,  // 4: bottom-left-back
+         1.0f, -1.0f, -1.0f,  1.0f, 0.0f,  0.0f,  0.0f, -1.0f,  // 5: bottom-right-back
+         1.0f,  1.0f, -1.0f,  1.0f, 1.0f,  0.0f,  0.0f, -1.0f,  // 6: top-right-back
+        -1.0f,  1.0f, -1.0f,  0.0f, 1.0f,  0.0f,  0.0f, -1.0f   // 7: top-left-back
+    };
     
-    // Convert vertex descriptor
-    MDLVertexDescriptor* mdlVertexDescriptor = MTKModelIOVertexDescriptorFromMetal(impl->mtlVertexDescriptor);
+    // Cube indices: 12 triangles (6 faces * 2 triangles each)
+    uint16_t indices[] = {
+        // Front face
+        0, 1, 2,  0, 2, 3,
+        // Back face
+        5, 4, 7,  5, 7, 6,
+        // Left face
+        4, 0, 3,  4, 3, 7,
+        // Right face
+        1, 5, 6,  1, 6, 2,
+        // Top face
+        3, 2, 6,  3, 6, 7,
+        // Bottom face
+        4, 5, 1,  4, 1, 0
+    };
     
-    mdlVertexDescriptor.attributes[VertexAttributePosition].name = MDLVertexAttributePosition;
-    mdlVertexDescriptor.attributes[VertexAttributeTexcoord].name = MDLVertexAttributeTextureCoordinate;
-    mdlVertexDescriptor.attributes[VertexAttributeNormal].name = MDLVertexAttributeNormal;
+    // Create vertex buffer
+    id<MTLBuffer> vertexBuffer = [impl->device newBufferWithBytes:vertices
+                                                           length:sizeof(vertices)
+                                                          options:MTLResourceStorageModeShared];
+    vertexBuffer.label = @"CubeVertices";
     
-    mdlMesh.vertexDescriptor = mdlVertexDescriptor;
+    // Create index buffer
+    id<MTLBuffer> indexBuffer = [impl->device newBufferWithBytes:indices
+                                                          length:sizeof(indices)
+                                                         options:MTLResourceStorageModeShared];
+    indexBuffer.label = @"CubeIndices";
     
-    // Create MetalKit mesh
-    impl->mesh = [[MTKMesh alloc] initWithMesh:mdlMesh device:impl->device error:&error];
+    // Store the buffers for rendering
+    impl->vertexBuffer = vertexBuffer;
+    impl->indexBuffer = indexBuffer;
+    impl->indexCount = sizeof(indices) / sizeof(uint16_t);
     
-    if (!impl->mesh || error) {
-        fprintf(stderr, "Error creating MetalKit mesh: %s\n", error.localizedDescription.UTF8String);
-        return 0;
-    }
+    // Set mesh to NULL since we're not using MTKMesh anymore
+    impl->mesh = nil;
     
-    fprintf(stderr, "Mesh created successfully\n");
-    fprintf(stderr, "Mesh vertex count: %lu\n", (unsigned long)impl->mesh.vertexCount);
-    fprintf(stderr, "Mesh submesh count: %lu\n", (unsigned long)impl->mesh.submeshes.count);
+    fprintf(stderr, "Cube mesh created successfully\n");
+    fprintf(stderr, "Vertex count: 8, Index count: %d\n", impl->indexCount);
     
     return 1;
+}
+
+// Upload Model3D to Metal buffers and return handle
+MetalModelHandle metal_engine_upload_model(MetalEngine* engine, Model3D* model) {
+    if (!engine || !model || !model->meshes || model->mesh_count == 0) {
+        fprintf(stderr, "Invalid model for upload\n");
+        return NULL;
+    }
+    
+    MetalEngineImpl* impl = (MetalEngineImpl*)engine;
+    
+    // Allocate MetalModel structure
+    MetalModel* metalModel = (MetalModel*)malloc(sizeof(MetalModel));
+    if (!metalModel) {
+        fprintf(stderr, "Failed to allocate MetalModel\n");
+        return NULL;
+    }
+    
+    metalModel->meshCount = model->mesh_count;
+    metalModel->name = model->name ? strdup(model->name) : strdup("UnnamedModel");
+    
+    // Allocate arrays for buffers and counts
+    metalModel->vertexBuffers = (__unsafe_unretained id<MTLBuffer>*)malloc(model->mesh_count * sizeof(id<MTLBuffer>));
+    metalModel->indexBuffers = (__unsafe_unretained id<MTLBuffer>*)malloc(model->mesh_count * sizeof(id<MTLBuffer>));
+    metalModel->indexCounts = (uint32_t*)malloc(model->mesh_count * sizeof(uint32_t));
+    
+    if (!metalModel->vertexBuffers || !metalModel->indexBuffers || !metalModel->indexCounts) {
+        fprintf(stderr, "Failed to allocate MetalModel arrays\n");
+        metal_engine_free_model((MetalModelHandle)metalModel);
+        return NULL;
+    }
+    
+    // Upload each mesh
+    for (uint32_t i = 0; i < model->mesh_count; i++) {
+        Mesh* mesh = &model->meshes[i];
+        
+        if (!mesh->vertices || !mesh->indices || mesh->vertex_count == 0 || mesh->index_count == 0) {
+            fprintf(stderr, "Invalid mesh %u for upload\n", i);
+            continue;
+        }
+        
+        // Convert vertices to Metal format (position + texcoord + normal)
+        size_t vertexDataSize = mesh->vertex_count * sizeof(float) * 8; // 8 floats per vertex
+        float* vertexData = (float*)malloc(vertexDataSize);
+        if (!vertexData) {
+            fprintf(stderr, "Failed to allocate vertex data for mesh %u\n", i);
+            continue;
+        }
+        
+        // Pack vertex data: position(3) + texcoord(2) + normal(3) = 8 floats
+        for (uint32_t j = 0; j < mesh->vertex_count; j++) {
+            Vertex* vertex = &mesh->vertices[j];
+            float* dst = vertexData + j * 8;
+            
+            // Position
+            dst[0] = vertex->position.x;
+            dst[1] = vertex->position.y;
+            dst[2] = vertex->position.z;
+            
+            // TexCoord
+            dst[3] = vertex->texcoord.x;
+            dst[4] = vertex->texcoord.y;
+            
+            // Normal
+            dst[5] = vertex->normal.x;
+            dst[6] = vertex->normal.y;
+            dst[7] = vertex->normal.z;
+        }
+        
+        // Create vertex buffer
+        id<MTLBuffer> vertexBuffer = [impl->device newBufferWithBytes:vertexData
+                                                               length:vertexDataSize
+                                                              options:MTLResourceStorageModeShared];
+        vertexBuffer.label = [NSString stringWithFormat:@"%@_Mesh%u_Vertices", 
+                              [NSString stringWithUTF8String:metalModel->name], i];
+        
+        // Create index buffer
+        id<MTLBuffer> indexBuffer = [impl->device newBufferWithBytes:mesh->indices
+                                                             length:mesh->index_count * sizeof(uint32_t)
+                                                            options:MTLResourceStorageModeShared];
+        indexBuffer.label = [NSString stringWithFormat:@"%@_Mesh%u_Indices", 
+                            [NSString stringWithUTF8String:metalModel->name], i];
+        
+        // Store buffers
+        metalModel->vertexBuffers[i] = vertexBuffer;
+        metalModel->indexBuffers[i] = indexBuffer;
+        metalModel->indexCounts[i] = mesh->index_count;
+        
+        // Free temporary vertex data
+        free(vertexData);
+        
+        fprintf(stderr, "Uploaded mesh %u: %u vertices, %u indices\n", 
+                i, mesh->vertex_count, mesh->index_count);
+    }
+    
+    fprintf(stderr, "Successfully uploaded model '%s' with %u meshes\n", 
+            metalModel->name, metalModel->meshCount);
+    
+    return (MetalModelHandle)metalModel;
+}
+
+// Set the uploaded model for rendering
+void metal_engine_set_uploaded_model(MetalEngine* engine, MetalModelHandle model) {
+    if (!engine) return;
+    
+    MetalEngineImpl* impl = (MetalEngineImpl*)engine;
+    
+    // Release previous model if any
+    if (impl->uploadedModel) {
+        metal_engine_free_model((MetalModelHandle)impl->uploadedModel);
+    }
+    
+    impl->uploadedModel = (MetalModel*)model;
+    fprintf(stderr, "Set uploaded model for rendering: %s\n", 
+            impl->uploadedModel ? impl->uploadedModel->name : "NULL");
+}
+
+// Render a specific model (direct Metal encoder version)
+void metal_engine_render_model_direct(MetalEngine* engine, MetalModelHandle model, void* renderEncoder) {
+    if (!engine || !model || !renderEncoder) {
+        fprintf(stderr, "Invalid parameters for model rendering\n");
+        return;
+    }
+    
+    // MetalEngineImpl* impl = (MetalEngineImpl*)engine; // Unused variable
+    MetalModel* metalModel = (MetalModel*)model;
+    id<MTLRenderCommandEncoder> encoder = (__bridge id<MTLRenderCommandEncoder>)renderEncoder;
+    
+    // Render each mesh
+    for (uint32_t i = 0; i < metalModel->meshCount; i++) {
+        id<MTLBuffer> vertexBuffer = metalModel->vertexBuffers[i];
+        id<MTLBuffer> indexBuffer = metalModel->indexBuffers[i];
+        uint32_t indexCount = metalModel->indexCounts[i];
+        
+        if (!vertexBuffer || !indexBuffer || indexCount == 0) {
+            fprintf(stderr, "Invalid mesh %u for rendering\n", i);
+            continue;
+        }
+        
+        // Set vertex buffer
+        [encoder setVertexBuffer:vertexBuffer offset:0 atIndex:BufferIndexVertices];
+        
+        // Draw indexed primitives
+        [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                                indexCount:indexCount
+                                 indexType:MTLIndexTypeUInt32
+                               indexBuffer:indexBuffer
+                         indexBufferOffset:0];
+    }
+}
+
+// Render a specific model
+void metal_engine_render_model(MetalEngine* engine, MetalModelHandle model, MetalRenderCommandEncoderHandle renderEncoder) {
+    if (!engine || !model || !renderEncoder) {
+        fprintf(stderr, "Invalid parameters for model rendering\n");
+        return;
+    }
+    
+    // MetalEngineImpl* impl = (MetalEngineImpl*)engine; // Unused variable
+    MetalModel* metalModel = (MetalModel*)model;
+    id<MTLRenderCommandEncoder> encoder = (__bridge id<MTLRenderCommandEncoder>)renderEncoder;
+    
+    // Render each mesh
+    for (uint32_t i = 0; i < metalModel->meshCount; i++) {
+        id<MTLBuffer> vertexBuffer = metalModel->vertexBuffers[i];
+        id<MTLBuffer> indexBuffer = metalModel->indexBuffers[i];
+        uint32_t indexCount = metalModel->indexCounts[i];
+        
+        if (!vertexBuffer || !indexBuffer || indexCount == 0) {
+            fprintf(stderr, "Invalid mesh %u for rendering\n", i);
+            continue;
+        }
+        
+        // Set vertex buffer
+        [encoder setVertexBuffer:vertexBuffer offset:0 atIndex:BufferIndexVertices];
+        
+        // Draw indexed primitives
+        [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                            indexCount:indexCount
+                             indexType:MTLIndexTypeUInt32
+                           indexBuffer:indexBuffer
+                     indexBufferOffset:0];
+    }
+}
+
+// Free uploaded model resources
+void metal_engine_free_model(MetalModelHandle model) {
+    if (!model) return;
+    
+    MetalModel* metalModel = (MetalModel*)model;
+    
+    // Release Metal buffers
+    if (metalModel->vertexBuffers) {
+        for (uint32_t i = 0; i < metalModel->meshCount; i++) {
+            if (metalModel->vertexBuffers[i]) {
+                // Note: In a real implementation, we would release Metal objects here
+                metalModel->vertexBuffers[i] = nil;
+            }
+        }
+        free(metalModel->vertexBuffers);
+    }
+    
+    if (metalModel->indexBuffers) {
+        for (uint32_t i = 0; i < metalModel->meshCount; i++) {
+            if (metalModel->indexBuffers[i]) {
+                // Note: In a real implementation, we would release Metal objects here
+                metalModel->indexBuffers[i] = nil;
+            }
+        }
+        free(metalModel->indexBuffers);
+    }
+    
+    if (metalModel->indexCounts) {
+        free(metalModel->indexCounts);
+    }
+    
+    if (metalModel->name) {
+        free(metalModel->name);
+    }
+    
+    free(metalModel);
+    
+    fprintf(stderr, "Freed MetalModel resources\n");
 }
 
 int metal_engine_create_textures(MetalEngine* engine) {
@@ -373,28 +694,13 @@ int metal_engine_create_textures(MetalEngine* engine) {
     fprintf(stderr, "Texture dimensions: %lu x %lu\n", (unsigned long)impl->colorMap.width, (unsigned long)impl->colorMap.height);
     fprintf(stderr, "Texture pixel format: %lu\n", (unsigned long)impl->colorMap.pixelFormat);
     
-    // Create blurred texture for post-processing
-    MTLTextureDescriptor* blurredTextureDesc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm_sRGB
-                                                                                                 width:512
-                                                                                                height:512
-                                                                                             mipmapped:NO];
-    blurredTextureDesc.usage = MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget;
-    impl->blurredTexture = [impl->device newTextureWithDescriptor:blurredTextureDesc];
-    impl->blurredTexture.label = @"BlurredTexture";
     
-    // Initialize Metal Performance Shaders
-    impl->gaussianBlur = [[MPSImageGaussianBlur alloc] initWithDevice:impl->device sigma:2.0];
     
     return 1;
 }
 
 int metal_engine_load_assets(MetalEngine* engine) {
     if (!engine) return 0;
-    
-    // Create pipeline
-    if (!metal_engine_create_pipeline(engine)) {
-        return 0;
-    }
     
     // Create mesh
     if (!metal_engine_create_mesh(engine)) {
@@ -452,25 +758,96 @@ void metal_engine_update_game_state(MetalEngine* engine) {
     // Calculate camera position
     mat4_t invViewMatrix = mat4_inverse(viewMatrix);
     vec4_t cameraPos = invViewMatrix.w;
-    uniforms->cameraPosition[0] = cameraPos[0];
-    uniforms->cameraPosition[1] = cameraPos[1];
-    uniforms->cameraPosition[2] = cameraPos[2];
+    uniforms->cameraPosition[0] = cameraPos.x;
+    uniforms->cameraPosition[1] = cameraPos.y;
+    uniforms->cameraPosition[2] = cameraPos.z;
     
     uniforms->time = impl->rotationAngle;
     
     impl->rotationAngle += 0.01f;
 }
 
-void metal_engine_render_frame(MetalEngine* engine, MetalViewHandle view) {
-    if (!engine || !view) {
-        fprintf(stderr, "Render frame: engine or view is NULL\n");
+void metal_engine_update_game_state_from_engine_state(MetalEngine* engine, void* engineState) {
+    NSLog(@"=== FUNCTION CALLED ===");
+    
+    if (!engine || !engineState) {
+        NSLog(@"ERROR: engine=%p, engineState=%p", engine, engineState);
+        return;
+    }
+    
+    MetalEngineImpl* impl = (MetalEngineImpl*)engine;
+    MetalUniforms* uniforms = (MetalUniforms*)impl->uniformBufferAddress;
+    
+    NSLog(@"impl=%p, uniforms=%p", impl, uniforms);
+    
+    // Cast to access engine state fields directly
+    // We know the structure layout from engine_main.h
+    char* base = (char*)engineState;
+    
+    // Access fields using correct offsets based on EngineStateStruct layout
+    // state (4) + camera_position (12) + camera_target (12) + camera_up (12) + padding (8) + view_matrix (64) = 112
+    float* projectionMatrix = (float*)(base + 112);  // projection_matrix starts at offset 112
+    float* viewMatrix = (float*)(base + 48);         // view_matrix starts at offset 48
+    float* modelMatrix = (float*)(base + 176);       // model_matrix starts at offset 176
+    float* cameraPosition = (float*)(base + 4);      // camera_position starts at offset 4
+    float* rotationAngle = (float*)(base + 240);     // model_rotation_angle starts at offset 240
+    
+    NSLog(@"Offsets: proj=%p, view=%p, model=%p, cam=%p, rot=%p", 
+            projectionMatrix, viewMatrix, modelMatrix, cameraPosition, rotationAngle);
+    
+    // Read matrices directly from engine state and convert to proper format
+    mat4_to_float_array((mat4_t*)projectionMatrix, uniforms->projectionMatrix);
+    mat4_to_float_array((mat4_t*)viewMatrix, uniforms->viewMatrix);
+    mat4_to_float_array((mat4_t*)modelMatrix, uniforms->modelMatrix);
+    
+    NSLog(@"Using matrices from engine state");
+    
+    // Calculate modelViewMatrix from engine state
+    mat4_t modelViewMatrix = mat4_mul_mat4(*(mat4_t*)viewMatrix, *(mat4_t*)modelMatrix);
+    mat4_to_float_array(&modelViewMatrix, uniforms->modelViewMatrix);
+    
+    // Calculate normal matrix
+    mat4_t normalMatrix = mat4_inverse(mat4_transpose(*(mat4_t*)modelMatrix));
+    mat4_to_float_array(&normalMatrix, uniforms->normalMatrix);
+    
+    // Use camera position from engine state
+    NSLog(@"Raw camera position bytes at %p: [%.3f, %.3f, %.3f]", 
+            cameraPosition, cameraPosition[0], cameraPosition[1], cameraPosition[2]);
+    
+    memcpy(uniforms->cameraPosition, cameraPosition, sizeof(float) * 3);
+    
+    NSLog(@"Camera position after memcpy: (%.3f, %.3f, %.3f)", 
+            uniforms->cameraPosition[0], uniforms->cameraPosition[1], uniforms->cameraPosition[2]);
+    
+    uniforms->time = *rotationAngle;
+    
+    // Debug: Print matrix values to see what's being passed to shaders
+    NSLog(@"=== MATRIX DEBUG ===");
+    NSLog(@"Projection Matrix [0,0]: %.3f, [0,1]: %.3f, [0,2]: %.3f, [0,3]: %.3f", 
+            uniforms->projectionMatrix[0], uniforms->projectionMatrix[1], uniforms->projectionMatrix[2], uniforms->projectionMatrix[3]);
+    NSLog(@"View Matrix [0,0]: %.3f, [0,1]: %.3f, [0,2]: %.3f, [0,3]: %.3f", 
+            uniforms->viewMatrix[0], uniforms->viewMatrix[1], uniforms->viewMatrix[2], uniforms->viewMatrix[3]);
+    NSLog(@"Model Matrix [0,0]: %.3f, [0,1]: %.3f, [0,2]: %.3f, [0,3]: %.3f", 
+            uniforms->modelMatrix[0], uniforms->modelMatrix[1], uniforms->modelMatrix[2], uniforms->modelMatrix[3]);
+    NSLog(@"ModelView Matrix [0,0]: %.3f, [0,1]: %.3f, [0,2]: %.3f, [0,3]: %.3f", 
+            uniforms->modelViewMatrix[0], uniforms->modelViewMatrix[1], uniforms->modelViewMatrix[2], uniforms->modelViewMatrix[3]);
+    NSLog(@"Camera Position: (%.3f, %.3f, %.3f)", uniforms->cameraPosition[0], uniforms->cameraPosition[1], uniforms->cameraPosition[2]);
+    NSLog(@"Rotation Angle: %.3f", *rotationAngle);
+    NSLog(@"===================");
+}
+
+void metal_engine_render_frame(MetalEngine* engine, MetalViewHandle view, void* engineState) {
+    /* NSLog(@"=== RENDER FRAME START ==="); */
+    
+    if (!engine || !view || !engineState) {
+        NSLog(@"ERROR: Render frame: engine=%p, view=%p, or engineState=%p is NULL", engine, view, engineState);
         return;
     }
     
     MetalEngineImpl* impl = (MetalEngineImpl*)engine;
     MTKView* mtkView = (__bridge MTKView*)view;
     
-    fprintf(stderr, "Render frame: engine=%p, view=%p, mtkView=%p\n", engine, view, mtkView);
+    /* NSLog(@"Render frame: engine=%p, view=%p, mtkView=%p, engineState=%p", engine, view, mtkView, engineState); */
     
     // Wait for available buffer
     // Note: In a real implementation, we would use a semaphore here
@@ -479,26 +856,32 @@ void metal_engine_render_frame(MetalEngine* engine, MetalViewHandle view) {
     id<MTLCommandBuffer> commandBuffer = [impl->commandQueue commandBuffer];
     commandBuffer.label = @"MyCommand";
     
+    /* NSLog(@"About to update buffer state..."); */
+    
     // Update buffer state
     metal_engine_update_dynamic_buffer_state(engine);
     
-    // Update game state
-    metal_engine_update_game_state(engine);
+    /* NSLog(@"About to update game state..."); */
+    
+    // Update game state using engine state directly
+    metal_engine_update_game_state_from_engine_state(engine, engineState);
+    
+    /* NSLog(@"About to get render pass descriptor..."); */
     
     // Get render pass descriptor
     MTLRenderPassDescriptor* renderPassDescriptor = mtkView.currentRenderPassDescriptor;
     
-    fprintf(stderr, "Render pass descriptor: %p\n", renderPassDescriptor);
+    /* NSLog(@"Render pass descriptor: %p", renderPassDescriptor); */
     
     if (renderPassDescriptor != nil) {
-        fprintf(stderr, "Creating render encoder...\n");
+        /* fprintf(stderr, "Creating render encoder...\n"); */
         
         // Create render command encoder
         id<MTLRenderCommandEncoder> renderEncoder = [commandBuffer renderCommandEncoderWithDescriptor:renderPassDescriptor];
         renderEncoder.label = @"MyRenderEncoder";
         
-        fprintf(stderr, "Render encoder: %p, pipeline state: %p, depth state: %p\n", 
-                renderEncoder, impl->renderPipelineState, impl->depthState);
+        /* fprintf(stderr, "Render encoder: %p, pipeline state: %p, depth state: %p\n", 
+                renderEncoder, impl->renderPipelineState, impl->depthState); */
         
         [renderEncoder pushDebugGroup:@"DrawBox"];
         
@@ -516,37 +899,29 @@ void metal_engine_render_frame(MetalEngine* engine, MetalViewHandle view) {
                                   offset:impl->uniformBufferOffset
                                  atIndex:BufferIndexUniforms];
         
-        // Set vertex buffers - use buffer 0 for all vertex data
-        for (NSUInteger bufferIndex = 0; bufferIndex < impl->mesh.vertexBuffers.count; bufferIndex++) {
-            MTKMeshBuffer* vertexBuffer = impl->mesh.vertexBuffers[bufferIndex];
-            if ((NSNull*)vertexBuffer != [NSNull null]) {
-                [renderEncoder setVertexBuffer:vertexBuffer.buffer
-                                        offset:vertexBuffer.offset
-                                       atIndex:0]; // Always use buffer 0 for vertex data
-            }
-        }
-        
         // Set texture
         [renderEncoder setFragmentTexture:impl->colorMap atIndex:TextureIndexColorMap];
         
-        // Draw submeshes
-        for (MTKSubmesh* submesh in impl->mesh.submeshes) {
-            [renderEncoder drawIndexedPrimitives:submesh.primitiveType
-                                      indexCount:submesh.indexCount
-                                       indexType:submesh.indexType
-                                     indexBuffer:submesh.indexBuffer.buffer
-                               indexBufferOffset:submesh.indexBuffer.offset];
+        // Check if we have any entities to render
+        EngineStateStruct* engineStateStruct = (EngineStateStruct*)engineState;
+        uint32_t entityCount = engineStateStruct && engineStateStruct->world ? world_get_entity_count(engineStateStruct->world) : 0;
+        
+        if (entityCount > 0) {
+            // Render entities using the world system
+            /* fprintf(stderr, "Rendering %u entities\n", entityCount); */
+            world_render(engineStateStruct->world, engine, engineState);
+        } else if (impl->uploadedModel) {
+            // Fallback: render uploaded model if no entities but model exists
+            /* fprintf(stderr, "Rendering uploaded model: %s\n", impl->uploadedModel->name); */
+            metal_engine_render_model_direct(engine, (MetalModelHandle)impl->uploadedModel, (__bridge void*)renderEncoder);
+        } else {
+            // No entities and no uploaded model - just clear the screen
+            fprintf(stderr, "\rNo entities to render, clearing screen");
+            // Don't draw anything, just let the clear color show through
         }
         
         [renderEncoder popDebugGroup];
         [renderEncoder endEncoding];
-        
-        // Apply post-processing
-        if (impl->gaussianBlur && impl->blurredTexture) {
-            [impl->gaussianBlur encodeToCommandBuffer:commandBuffer
-                                       sourceTexture:mtkView.currentDrawable.texture
-                                  destinationTexture:impl->blurredTexture];
-        }
         
         // Present drawable
         [commandBuffer presentDrawable:mtkView.currentDrawable];
@@ -570,6 +945,8 @@ void metal_engine_resize_viewport(MetalEngine* engine, int width, int height) {
     
     fprintf(stderr, "Viewport resized: %dx%d\n", width, height);
 }
+
+
 
 // Metal 3.0 feature enablement
 void metal_engine_enable_object_capture(MetalEngine* engine) {
@@ -690,7 +1067,7 @@ mat4_t metal_engine_matrix_rotation(float radians, vec3_t axis) {
     float ct = cosf(radians);
     float st = sinf(radians);
     float ci = 1.0f - ct;
-    float x = normAxis[0], y = normAxis[1], z = normAxis[2];
+    float x = normAxis.x, y = normAxis.y, z = normAxis.z;
     
     mat4_t m;
     m.x = vec4(ct + x * x * ci, y * x * ci + z * st, z * x * ci - y * st, 0.0f);

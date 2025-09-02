@@ -134,14 +134,14 @@ void mesh_calculate_bounds(Mesh* mesh, vec3_t* min, vec3_t* max) {
         vec3_t pos = mesh->vertices[i].position;
         
         // Update minimum bounds component by component
-        if (pos[0] < (*min)[0]) (*min)[0] = pos[0];
-        if (pos[1] < (*min)[1]) (*min)[1] = pos[1];
-        if (pos[2] < (*min)[2]) (*min)[2] = pos[2];
+        if (pos.x < min->x) min->x = pos.x;
+        if (pos.y < min->y) min->y = pos.y;
+        if (pos.z < min->z) min->z = pos.z;
         
         // Update maximum bounds component by component
-        if (pos[0] > (*max)[0]) (*max)[0] = pos[0];
-        if (pos[1] > (*max)[1]) (*max)[1] = pos[1];
-        if (pos[2] > (*max)[2]) (*max)[2] = pos[2];
+        if (pos.x > max->x) max->x = pos.x;
+        if (pos.y > max->y) max->y = pos.y;
+        if (pos.z > max->z) max->z = pos.z;
     }
 }
 
@@ -162,13 +162,13 @@ void model3d_calculate_bounds(Model3D* model) {
         mesh_calculate_bounds(&model->meshes[i], &mesh_min, &mesh_max);
         
         // Update model bounds component by component
-        if (mesh_min[0] < model->bounding_min[0]) model->bounding_min[0] = mesh_min[0];
-        if (mesh_min[1] < model->bounding_min[1]) model->bounding_min[1] = mesh_min[1];
-        if (mesh_min[2] < model->bounding_min[2]) model->bounding_min[2] = mesh_min[2];
+        if (mesh_min.x < model->bounding_min.x) model->bounding_min.x = mesh_min.x;
+        if (mesh_min.y < model->bounding_min.y) model->bounding_min.y = mesh_min.y;
+        if (mesh_min.z < model->bounding_min.z) model->bounding_min.z = mesh_min.z;
         
-        if (mesh_max[0] > model->bounding_max[0]) model->bounding_max[0] = mesh_max[0];
-        if (mesh_max[1] > model->bounding_max[1]) model->bounding_max[1] = mesh_max[1];
-        if (mesh_max[2] > model->bounding_max[2]) model->bounding_max[2] = mesh_max[2];
+        if (mesh_max.x > model->bounding_max.x) model->bounding_max.x = mesh_max.x;
+        if (mesh_max.y > model->bounding_max.y) model->bounding_max.y = mesh_max.y;
+        if (mesh_max.z > model->bounding_max.z) model->bounding_max.z = mesh_max.z;
     }
 }
 
@@ -199,9 +199,9 @@ void model3d_calculate_center_and_radius(Model3D* model) {
 
 void vertex_print(const char* name, Vertex v) {
     printf("%s:\n", name);
-    printf("  Position: [%.6f, %.6f, %.6f]\n", v.position[0], v.position[1], v.position[2]);
-    printf("  TexCoord: [%.6f, %.6f]\n", v.texcoord[0], v.texcoord[1]);
-    printf("  Normal:   [%.6f, %.6f, %.6f]\n", v.normal[0], v.normal[1], v.normal[2]);
+    printf("  Position: [%.6f, %.6f, %.6f]\n", v.position.x, v.position.y, v.position.z);
+    printf("  TexCoord: [%.6f, %.6f]\n", v.texcoord.x, v.texcoord.y);
+    printf("  Normal:   [%.6f, %.6f, %.6f]\n", v.normal.x, v.normal.y, v.normal.z);
 }
 
 void mesh_print(const char* name, Mesh* mesh) {
@@ -247,11 +247,11 @@ void model3d_print(const char* name, Model3D* model) {
     printf("  Meshes: %u\n", model->mesh_count);
     printf("  Bounding Box:\n");
     printf("    Min: [%.6f, %.6f, %.6f]\n", 
-           model->bounding_min[0], model->bounding_min[1], model->bounding_min[2]);
+           model->bounding_min.x, model->bounding_min.y, model->bounding_min.z);
     printf("    Max: [%.6f, %.6f, %.6f]\n", 
-           model->bounding_max[0], model->bounding_max[1], model->bounding_max[2]);
+           model->bounding_max.x, model->bounding_max.y, model->bounding_max.z);
     printf("  Center: [%.6f, %.6f, %.6f]\n", 
-           model->center[0], model->center[1], model->center[2]);
+           model->center.x, model->center.y, model->center.z);
     printf("  Radius: %.6f\n", model->radius);
     
     // Print each mesh

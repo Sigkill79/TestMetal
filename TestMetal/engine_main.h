@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include "engine_math.h"
+#include "engine_world.h"
 
 // Forward declarations for Metal types
 struct MetalEngine; // Forward declaration
@@ -26,8 +27,12 @@ typedef struct {
     // Math library integration
     vec3_t camera_position;
     vec3_t camera_target;
+    vec3_t camera_up;
     mat4_t view_matrix;
     mat4_t projection_matrix;
+    
+    // World system
+    World* world;
     
     // Metal engine handle
     MetalEngineHandle metal_engine;
@@ -38,18 +43,29 @@ typedef struct {
     // Viewport dimensions
     float viewport_width;
     float viewport_height;
+    
+    // Resource path for loading assets
+    char* resource_path;
 } EngineStateStruct;
 
 // Engine initialization with Metal setup
-EngineStateStruct* initialize_with_metal(MetalViewHandle view, float viewport_width, float viewport_height);
-EngineStateStruct* initialize(void);
-void update(EngineStateStruct* engineState);
+EngineStateStruct* engine_initialize(MetalViewHandle view, float viewport_width, float viewport_height, const char* resource_path);
+void engine_update(EngineStateStruct* engineState);
 void engine_shutdown(EngineStateStruct* engineState);
 
 // Metal-specific functions (now part of engine_main interface)
 int engine_load_assets(EngineStateStruct* engine);
 int engine_render_frame(EngineStateStruct* engine);
 void engine_resize_viewport(EngineStateStruct* engine, float width, float height);
+
+// World management functions
+World* engine_get_world(EngineStateStruct* engine);
+WorldEntity* engine_create_entity(EngineStateStruct* engine, const char* name);
+int engine_destroy_entity(EngineStateStruct* engine, uint32_t entity_id);
+WorldEntity* engine_get_entity(EngineStateStruct* engine, uint32_t entity_id);
+WorldEntity* engine_get_entity_by_name(EngineStateStruct* engine, const char* name);
+
+
 
 #ifdef __cplusplus
 }

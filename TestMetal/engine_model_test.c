@@ -122,7 +122,7 @@ void test_mesh(void) {
     vec3_t min, max;
     mesh_calculate_bounds(mesh, &min, &max);
     printf("Mesh bounds: min=[%.3f, %.3f, %.3f], max=[%.3f, %.3f, %.3f]\n",
-           min[0], min[1], min[2], max[0], max[1], max[2]);
+           min.x, min.y, min.z, max.x, max.y, max.z);
     
     // Clean up
     mesh_free(mesh);

@@ -9,22 +9,30 @@ LDFLAGS = -lm
 MODEL_SOURCES = engine_model.c engine_model_test.c
 MODEL_OBJECTS = $(MODEL_SOURCES:.c=.o)
 
+# FBX loader test
+FBX_SOURCES = engine_model.c engine_asset_fbx.c engine_asset_fbx_test.c
+FBX_OBJECTS = $(FBX_SOURCES:.c=.o)
+
 # Targets
 all: model_test
 
 model_test: $(MODEL_OBJECTS)
 	$(CC) $(MODEL_OBJECTS) -o model_test $(LDFLAGS)
 
+fbx_test: $(FBX_OBJECTS)
+	$(CC) $(FBX_OBJECTS) -o fbx_test $(LDFLAGS)
+
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Test the 3D model library
-test: model_test
+# Test the 3D model library and FBX loader
+test: model_test fbx_test
 	./model_test
+	./fbx_test
 
 # Clean up
 clean:
-	rm -f *.o model_test
+	rm -f *.o model_test fbx_test
 
 # Install 3D model library (copy to system)
 install: engine_model.h engine_model.c

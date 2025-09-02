@@ -1,0 +1,181 @@
+; FBX 7.4.0 project file
+; ---------------------------------------------------
+
+FBXHeaderExtension:  {
+	FBXHeaderVersion: 1003
+	FBXVersion: 7400
+	CreationTimeStamp:  {
+		Version: 1000
+		Year: 2025
+		Month: 8
+		Day: 30
+		Hour: 0
+		Minute: 38
+		Second: 0
+		Millisecond: 0
+	}
+	Creator: "TestMetal Engine"
+	SceneInfo: "SceneInfo::GlobalInfo", "SceneInfo" {
+		Type: "SceneInfo"
+		Version: 100
+		MetaData:  {
+			Version: 100
+			Title: ""
+			Subject: ""
+			Author: ""
+			Keywords: ""
+			Revision: ""
+			Comment: ""
+		}
+		Properties70:  {
+			P: "DocumentUrl", "KString", "Url", "", "C:/TestMetal/UnitBox.fbx"
+			P: "SrcRootUrl", "KString", "Url", "", ""
+			P: "Original_ApplicationName", "KString", "", "", "TestMetal"
+			P: "Original_ApplicationVersion", "KString", "", "", "1.0"
+			P: "Original_File_GUID", "KString", "", "", "{12345678-1234-1234-1234-123456789012}"
+			P: "LastSavedUrl", "KString", "Url", "", ""
+			P: "LastSavedApplicationName", "KString", "", "", "TestMetal"
+			P: "LastSavedApplicationVersion", "KString", "", "", "1.0"
+		}
+	}
+}
+
+GlobalSettings:  {
+	Version: 1000
+	Properties70:  {
+		P: "UpAxis", "int", "Integer", "", 1
+		P: "UpAxisSign", "int", "Integer", "", 1
+		P: "FrontAxis", "int", "Integer", "", 2
+		P: "FrontAxisSign", "int", "Integer", "", 1
+		P: "CoordAxis", "int", "Integer", "", 0
+		P: "CoordAxisSign", "int", "Integer", "", 1
+		P: "OriginalUpAxis", "int", "Integer", "", 1
+		P: "OriginalUpAxisSign", "int", "Integer", "", 1
+		P: "UnitScaleFactor", "double", "Number", "", 1.0
+		P: "OriginalUnitScaleFactor", "double", "Number", "", 1.0
+		P: "AmbientColor", "Color", "", "", 0.2, 0.2, 0.2
+		P: "DefaultCamera", "KString", "", "", "Producer Perspective"
+		P: "TimeMode", "enum", "", "", 6
+		P: "TimeProtocol", "enum", "", "", 2
+		P: "SnapOnFrameMode", "enum", "", "", 0
+		P: "TimeSpanStart", "KTime", "Time", "", 0
+		P: "TimeSpanStop", "KTime", "Time", "", 153953860000
+		P: "CustomFrameRate", "double", "Number", "", -1
+		P: "TimeMarker", "Compound", "", ""
+		P: "CurrentTimeMarker", "int", "Integer", "", -1
+	}
+}
+
+Documents:  {
+	Count: 1
+	Document: "Document::", "Scene" {
+		Properties70:  {
+			P: "SourceObject", "object", "", ""
+			P: "ActiveAnimStackName", "KString", "", "", ""
+		}
+		RootNode: "Model::RootNode"
+	}
+
+Definitions:  {
+	Version: 100
+	Count: 3
+	ObjectType: "GlobalSettings" {
+		Count: 1
+	}
+	ObjectType: "Model" {
+		Count: 2
+	}
+	ObjectType: "Geometry" {
+		Count: 1
+	}
+}
+
+Objects:  {
+	Geometry: "Geometry::", "Mesh" {
+		Properties70:  {
+			P: "Color", "Color", "", "", 0.8, 0.8, 0.8
+			P: "BBoxMin", "Vector3D", "Vector", "", -0.5, -0.5, -0.5
+			P: "BBoxMax", "Vector3D", "Vector", "", 0.5, 0.5, 0.5
+		}
+		Vertices: *24 {
+			a: -0.5, -0.5, -0.5, -0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5, -0.5, 0.5, -0.5, -0.5, 0.5, -0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, -0.5
+		}
+		PolygonVertexIndex: *24 {
+			a: 0, 1, 2, -3, 0, 2, 3, -4, 0, 4, 5, -6, 0, 5, 1, -7, 1, 5, 6, -8, 1, 6, 2, -9, 2, 6, 7, -10, 2, 7, 3, -11, 3, 7, 4, -12, 3, 4, 0, -13, 4, 7, 6, -14, 4, 6, 5, -15
+		}
+		Edges: *12 {
+			a: 0, 1, 1, 2, 2, 3, 3, 0, 4, 5, 5, 6, 6, 7, 7, 4, 0, 4, 1, 5, 2, 6, 3, 7
+		}
+		LayerElementNormal:  {
+			Version: 101
+			Name: ""
+			MappingInformationType: "ByPolygonVertex"
+			ReferenceInformationType: "Direct"
+			Normals: *24 {
+				a: -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1
+			}
+		}
+		LayerElementUV:  {
+			Version: 101
+			Name: "UVMap"
+			MappingInformationType: "ByPolygonVertex"
+			ReferenceInformationType: "IndexToDirect"
+			UV: *14 {
+				a: 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0
+			}
+			UVIndex: *24 {
+				a: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
+			}
+		}
+		LayerElementMaterial:  {
+			Version: 101
+			Name: ""
+			MappingInformationType: "AllSame"
+			ReferenceInformationType: "IndexToDirect"
+		}
+		Layer:  {
+			Version: 100
+			LayerElement:  {
+				Type: "LayerElementNormal"
+				TypedIndex: 0
+			}
+			LayerElement:  {
+				Type: "LayerElementUV"
+				TypedIndex: 0
+			}
+			LayerElement:  {
+				Type: "LayerElementMaterial"
+				TypedIndex: 0
+			}
+		}
+	}
+	Model: "Model::RootNode", "Null" {
+		Version: 232
+		Properties70:  {
+			P: "DefaultAttributeIndex", "int", "Integer", "", 0
+		}
+		MultiLayer: 0
+		MultiTake: 0
+		Shading: Y
+		Culling: "CullingOff"
+	}
+	Model: "Model::UnitBox", "Mesh" {
+		Version: 232
+		Properties70:  {
+			P: "DefaultAttributeIndex", "int", "Integer", "", 0
+			P: "Lcl Translation", "Lcl Translation", "", "A", 0, 0, 0
+			P: "Lcl Rotation", "Lcl Rotation", "", "A", 0, 0, 0
+			P: "Lcl Scaling", "Lcl Scaling", "", "A", 1, 1, 1
+		}
+		MultiLayer: 0
+		MultiTake: 0
+		Shading: Y
+		Culling: "CullingOff"
+		DefaultAttributeIndex: 0
+	}
+}
+
+Connections:  {
+	"OO", "Model::UnitBox", "Geometry::"
+	"OO", "Model::RootNode", "Model::UnitBox"
+}

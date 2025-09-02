@@ -1,9 +1,43 @@
 #include <metal_stdlib>
 #include <metal_geometric>
 #include <metal_math>
-#include "engine_metal_shaders.h"
 
 using namespace metal;
+
+// ============================================================================
+// METAL-COMPATIBLE STRUCTURES
+// ============================================================================
+
+// Metal-compatible uniform buffer structure
+struct MetalUniforms {
+    float4x4 projectionMatrix;         // Projection matrix
+    float4x4 modelViewMatrix;          // Combined model-view matrix
+    float4x4 modelMatrix;              // Model matrix
+    float4x4 viewMatrix;               // View matrix
+    float4x4 normalMatrix;             // Normal matrix for lighting
+    float3 cameraPosition;             // Camera position in world space
+    float time;                        // Time for animations
+};
+
+// ============================================================================
+// SHADER CONSTANTS
+// ============================================================================
+
+// Buffer indices
+#define BufferIndexVertices    0
+#define BufferIndexIndices     1
+#define BufferIndexUniforms    2
+
+// Texture indices
+#define TextureIndexColorMap   0
+
+// Sampler indices
+#define SamplerIndexColorMap   0
+
+// Vertex attributes
+#define VertexAttributePosition 0
+#define VertexAttributeTexcoord 1
+#define VertexAttributeNormal   2
 
 // ============================================================================
 // VERTEX SHADER
@@ -27,7 +61,7 @@ vertex VertexOut vertex_main(VertexIn in [[stage_in]],
     VertexOut out;
     
     // Transform position to clip space
-    out.position = uniforms.modelViewProjectionMatrix * float4(in.position, 1.0);
+    out.position = uniforms.projectionMatrix * uniforms.modelViewMatrix * float4(in.position, 1.0);
     
     // Pass through texture coordinates
     out.texcoord = in.texcoord;
