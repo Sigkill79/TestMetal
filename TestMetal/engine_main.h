@@ -30,6 +30,7 @@ typedef struct {
     vec3_t camera_up;
     mat4_t view_matrix;
     mat4_t projection_matrix;
+    mat4_t model_matrix;
     
     // World system
     World* world;

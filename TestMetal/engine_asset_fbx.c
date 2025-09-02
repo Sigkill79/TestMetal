@@ -262,15 +262,52 @@ static Model3D* build_model_from_parsed(const FBXParseData* d) {
     fprintf(stderr, "Input data: positions=%u, poly_indices=%u, normals=%u, uvs=%u\n", 
             d->positions_count, d->poly_indices_count, d->normals_count, d->uvs_count);
 
-    // First pass: count triangles and vertex occurrences
-    uint32_t tri_count = 0;
-    uint32_t poly_vert_in_poly = 0;
+    // Debug: Print first few polygon indices to understand the format
+    fprintf(stderr, "First 20 polygon indices: ");
+    for (uint32_t i = 0; i < d->poly_indices_count && i < 20; i++) {
+        fprintf(stderr, "%d ", d->poly_indices[i]);
+    }
+    fprintf(stderr, "\n");
+    
+    // Check if this uses negative indices (traditional FBX) or direct triangle indices
+    int has_negative_indices = 0;
     for (uint32_t i = 0; i < d->poly_indices_count; i++) {
-        int idx = d->poly_indices[i];
-        poly_vert_in_poly++;
-        if (idx < 0) { // end of polygon
-            if (poly_vert_in_poly >= 3) tri_count += (poly_vert_in_poly - 2);
-            poly_vert_in_poly = 0;
+        if (d->poly_indices[i] < 0) {
+            has_negative_indices = 1;
+            break;
+        }
+    }
+    
+    uint32_t tri_count = 0;
+    if (has_negative_indices) {
+        // Traditional FBX with negative indices marking polygon boundaries
+        fprintf(stderr, "Using traditional FBX polygon format (negative indices)\n");
+        uint32_t poly_vert_in_poly = 0;
+        uint32_t polygon_count = 0;
+        for (uint32_t i = 0; i < d->poly_indices_count; i++) {
+            int idx = d->poly_indices[i];
+            poly_vert_in_poly++;
+            if (idx < 0) { // end of polygon
+                polygon_count++;
+                fprintf(stderr, "Polygon %u has %u vertices\n", polygon_count, poly_vert_in_poly);
+                if (poly_vert_in_poly >= 3) {
+                    uint32_t tris_in_poly = (poly_vert_in_poly - 2);
+                    tri_count += tris_in_poly;
+                    fprintf(stderr, "  -> contributes %u triangles\n", tris_in_poly);
+                } else {
+                    fprintf(stderr, "  -> too few vertices, skipping\n");
+                }
+                poly_vert_in_poly = 0;
+            }
+        }
+        fprintf(stderr, "Total polygons: %u\n", polygon_count);
+    } else {
+        // Direct triangle indices - each group of 3 indices forms a triangle
+        fprintf(stderr, "Using direct triangle indices format (no negative indices)\n");
+        if (d->poly_indices_count >= 3) {
+            tri_count = d->poly_indices_count / 3; // Every 3 indices = 1 triangle
+            fprintf(stderr, "Direct triangle list: %u indices -> %u triangles\n", 
+                    d->poly_indices_count, tri_count);
         }
     }
     fprintf(stderr, "Calculated triangle count: %u\n", tri_count);
@@ -279,9 +316,25 @@ static Model3D* build_model_from_parsed(const FBXParseData* d) {
         return NULL;
     }
 
-    // We'll produce a flat triangle list with unique vertices for each polygon vertex.
-    uint32_t out_vertex_count = tri_count * 3;
-    fprintf(stderr, "Output vertex count: %u\n", out_vertex_count);
+    // Calculate the actual vertex and index counts based on the format
+    uint32_t out_vertex_count;
+    uint32_t out_index_count = tri_count * 3;
+    
+    if (has_negative_indices) {
+        // For traditional FBX, we create unique vertices for each triangle vertex
+        out_vertex_count = tri_count * 3;
+    } else {
+        // For direct triangle indices, we need to find the maximum index to determine vertex count
+        uint32_t max_index = 0;
+        for (uint32_t i = 0; i < d->poly_indices_count; i++) {
+            if (d->poly_indices[i] > (int)max_index) {
+                max_index = d->poly_indices[i];
+            }
+        }
+        out_vertex_count = max_index + 1;
+    }
+    
+    fprintf(stderr, "Output vertex count: %u, index count: %u\n", out_vertex_count, out_index_count);
 
     Model3D* model = model3d_allocate(1);
     if (!model) {
@@ -290,68 +343,118 @@ static Model3D* build_model_from_parsed(const FBXParseData* d) {
     }
     model->name = str_dup("FBXModel");
     Mesh* mesh = &model->meshes[0];
-    Mesh* alloc_mesh = mesh_allocate(out_vertex_count, tri_count * 3);
+    Mesh* alloc_mesh = mesh_allocate(out_vertex_count, out_index_count);
     if (!alloc_mesh) { 
         fprintf(stderr, "Failed to allocate mesh\n");
         model3d_free(model); 
         return NULL; 
     }
     *mesh = *alloc_mesh;
-    fprintf(stderr, "Allocated mesh with %u vertices and %u indices\n", out_vertex_count, tri_count * 3);
+    fprintf(stderr, "Allocated mesh with %u vertices and %u indices\n", out_vertex_count, out_index_count);
 
     // Second pass: fill vertices and indices
     uint32_t out_vi = 0;
     uint32_t out_ii = 0;
-    uint32_t poly_start_vi = 0;
-    uint32_t poly_vcount = 0;
-    // We'll collect polygon vertex position indices as positive values
-    int* poly_pos_idx = (int*)malloc(sizeof(int) * d->poly_indices_count);
-    uint32_t poly_pos_count = 0;
-    for (uint32_t i = 0; i < d->poly_indices_count; i++) {
-        int raw = d->poly_indices[i];
-        int is_last = raw < 0;
-        int idx = is_last ? (-raw - 1) : raw;
-        poly_pos_idx[poly_pos_count++] = idx;
-        poly_vcount++;
-        if (is_last) {
-            // fan triangles: (0, k, k+1) for k in [1..poly_vcount-2]
-            for (uint32_t k = 1; k + 1 < poly_vcount; k++) {
-                int i0 = poly_pos_idx[poly_start_vi + 0];
-                int i1 = poly_pos_idx[poly_start_vi + k];
-                int i2 = poly_pos_idx[poly_start_vi + k + 1];
+    
+    if (has_negative_indices) {
+        // Traditional FBX with negative indices marking polygon boundaries
+        uint32_t poly_start_vi = 0;
+        uint32_t poly_vcount = 0;
+        // We'll collect polygon vertex position indices as positive values
+        int* poly_pos_idx = (int*)malloc(sizeof(int) * d->poly_indices_count);
+        uint32_t poly_pos_count = 0;
+        for (uint32_t i = 0; i < d->poly_indices_count; i++) {
+            int raw = d->poly_indices[i];
+            int is_last = raw < 0;
+            int idx = is_last ? (-raw - 1) : raw;
+            poly_pos_idx[poly_pos_count++] = idx;
+            poly_vcount++;
+            if (is_last) {
+                // fan triangles: (0, k, k+1) for k in [1..poly_vcount-2]
+                for (uint32_t k = 1; k + 1 < poly_vcount; k++) {
+                    int i0 = poly_pos_idx[poly_start_vi + 0];
+                    int i1 = poly_pos_idx[poly_start_vi + k];
+                    int i2 = poly_pos_idx[poly_start_vi + k + 1];
 
-                // positions
-                float px0 = d->positions[i0 * 3 + 0];
-                float py0 = d->positions[i0 * 3 + 1];
-                float pz0 = d->positions[i0 * 3 + 2];
-                float px1 = d->positions[i1 * 3 + 0];
-                float py1 = d->positions[i1 * 3 + 1];
-                float pz1 = d->positions[i1 * 3 + 2];
-                float px2 = d->positions[i2 * 3 + 0];
-                float py2 = d->positions[i2 * 3 + 1];
-                float pz2 = d->positions[i2 * 3 + 2];
+                    // positions
+                    float px0 = d->positions[i0 * 3 + 0];
+                    float py0 = d->positions[i0 * 3 + 1];
+                    float pz0 = d->positions[i0 * 3 + 2];
+                    float px1 = d->positions[i1 * 3 + 0];
+                    float py1 = d->positions[i1 * 3 + 1];
+                    float pz1 = d->positions[i1 * 3 + 2];
+                    float px2 = d->positions[i2 * 3 + 0];
+                    float py2 = d->positions[i2 * 3 + 1];
+                    float pz2 = d->positions[i2 * 3 + 2];
 
-                mesh->vertices[out_vi + 0] = vertex_create_components(px0, py0, pz0, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
-                mesh->vertices[out_vi + 1] = vertex_create_components(px1, py1, pz1, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f);
-                mesh->vertices[out_vi + 2] = vertex_create_components(px2, py2, pz2, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f);
+                    mesh->vertices[out_vi + 0] = vertex_create_components(px0, py0, pz0, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
+                    mesh->vertices[out_vi + 1] = vertex_create_components(px1, py1, pz1, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f);
+                    mesh->vertices[out_vi + 2] = vertex_create_components(px2, py2, pz2, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f);
 
-                mesh->indices[out_ii + 0] = out_vi + 0;
-                mesh->indices[out_ii + 1] = out_vi + 1;
-                mesh->indices[out_ii + 2] = out_vi + 2;
-                out_vi += 3;
+                    mesh->indices[out_ii + 0] = out_vi + 0;
+                    mesh->indices[out_ii + 1] = out_vi + 1;
+                    mesh->indices[out_ii + 2] = out_vi + 2;
+                    out_vi += 3;
+                    out_ii += 3;
+                }
+                poly_start_vi = poly_pos_count;
+                poly_vcount = 0;
+            }
+        }
+        free(poly_pos_idx);
+    } else {
+        // Direct triangle indices - each group of 3 indices forms a triangle
+        // First, we need to create vertices for all unique position indices
+        uint32_t max_index = 0;
+        for (uint32_t i = 0; i < d->poly_indices_count; i++) {
+            if (d->poly_indices[i] > (int)max_index) {
+                max_index = d->poly_indices[i];
+            }
+        }
+        
+        fprintf(stderr, "Max position index: %u, creating %u vertices\n", max_index, max_index + 1);
+        
+        // Create vertices for all unique positions
+        for (uint32_t i = 0; i <= max_index; i++) {
+            if (i * 3 + 2 < d->positions_count) {
+                float px = d->positions[i * 3 + 0];
+                float py = d->positions[i * 3 + 1];
+                float pz = d->positions[i * 3 + 2];
+                
+                // Simple UV mapping based on position
+                float u = (px + 1.0f) * 0.5f; // Map from [-1,1] to [0,1]
+                float v = (py + 1.0f) * 0.5f; // Map from [-1,1] to [0,1]
+                
+                mesh->vertices[out_vi] = vertex_create_components(px, py, pz, u, v, 0.0f, 0.0f, 1.0f);
+                out_vi++;
+            }
+        }
+        
+        // Now create indices using the original polygon indices
+        for (uint32_t i = 0; i < d->poly_indices_count; i += 3) {
+            if (i + 2 < d->poly_indices_count) {
+                int i0 = d->poly_indices[i + 0];
+                int i1 = d->poly_indices[i + 1];
+                int i2 = d->poly_indices[i + 2];
+
+                mesh->indices[out_ii + 0] = i0;
+                mesh->indices[out_ii + 1] = i1;
+                mesh->indices[out_ii + 2] = i2;
                 out_ii += 3;
             }
-            poly_start_vi = poly_pos_count;
-            poly_vcount = 0;
         }
     }
-    free(poly_pos_idx);
 
     fprintf(stderr, "Generated %u vertices and %u indices\n", out_vi, out_ii);
     
     model3d_calculate_bounds(model);
     model3d_calculate_center_and_radius(model);
     
+    fprintf(stderr, "Model bounds: min=(%.3f, %.3f, %.3f), max=(%.3f, %.3f, %.3f)\n",
+            model->bounding_min.x, model->bounding_min.y, model->bounding_min.z,
+            model->bounding_max.x, model->bounding_max.y, model->bounding_max.z);
+    fprintf(stderr, "Model center: (%.3f, %.3f, %.3f), radius: %.3f\n",
+            model->center.x, model->center.y, model->center.z, model->radius);
     fprintf(stderr, "Model bounds calculated successfully\n");
     fprintf(stderr, "=== BUILD MODEL FROM PARSED END ===\n");
     return model;

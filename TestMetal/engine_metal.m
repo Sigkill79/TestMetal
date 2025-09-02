@@ -35,8 +35,8 @@ typedef struct {
 
 // MetalModel structure to hold uploaded model data
 typedef struct MetalModel {
-    __unsafe_unretained id<MTLBuffer>* vertexBuffers;      // Array of vertex buffers (one per mesh)
-    __unsafe_unretained id<MTLBuffer>* indexBuffers;       // Array of index buffers (one per mesh)
+    __strong id<MTLBuffer>* vertexBuffers;      // Array of vertex buffers (one per mesh)
+    __strong id<MTLBuffer>* indexBuffers;       // Array of index buffers (one per mesh)
     uint32_t* indexCounts;              // Array of index counts (one per mesh)
     uint32_t meshCount;                 // Number of meshes in the model
     char* name;                         // Model name
@@ -425,8 +425,8 @@ MetalModelHandle metal_engine_upload_model(MetalEngine* engine, Model3D* model) 
     metalModel->name = model->name ? strdup(model->name) : strdup("UnnamedModel");
     
     // Allocate arrays for buffers and counts
-    metalModel->vertexBuffers = (__unsafe_unretained id<MTLBuffer>*)malloc(model->mesh_count * sizeof(id<MTLBuffer>));
-    metalModel->indexBuffers = (__unsafe_unretained id<MTLBuffer>*)malloc(model->mesh_count * sizeof(id<MTLBuffer>));
+    metalModel->vertexBuffers = (__strong id<MTLBuffer>*)malloc(model->mesh_count * sizeof(id<MTLBuffer>));
+    metalModel->indexBuffers = (__strong id<MTLBuffer>*)malloc(model->mesh_count * sizeof(id<MTLBuffer>));
     metalModel->indexCounts = (uint32_t*)malloc(model->mesh_count * sizeof(uint32_t));
     
     if (!metalModel->vertexBuffers || !metalModel->indexBuffers || !metalModel->indexCounts) {
@@ -480,16 +480,28 @@ MetalModelHandle metal_engine_upload_model(MetalEngine* engine, Model3D* model) 
                               [NSString stringWithUTF8String:metalModel->name], i];
         
         // Create index buffer
+        size_t indexBufferSize = mesh->index_count * sizeof(uint32_t);
+        fprintf(stderr, "Creating index buffer: mesh->index_count=%u, sizeof(uint32_t)=%zu, total size=%zu\n", 
+                mesh->index_count, sizeof(uint32_t), indexBufferSize);
+        fprintf(stderr, "mesh->indices pointer: %p\n", mesh->indices);
+        if (mesh->indices && mesh->index_count > 0) {
+            fprintf(stderr, "First few indices: %u, %u, %u, %u, %u\n", 
+                    mesh->indices[0], mesh->indices[1], mesh->indices[2], mesh->indices[3], mesh->indices[4]);
+        }
         id<MTLBuffer> indexBuffer = [impl->device newBufferWithBytes:mesh->indices
-                                                             length:mesh->index_count * sizeof(uint32_t)
+                                                             length:indexBufferSize
                                                             options:MTLResourceStorageModeShared];
         indexBuffer.label = [NSString stringWithFormat:@"%@_Mesh%u_Indices", 
                             [NSString stringWithUTF8String:metalModel->name], i];
+        fprintf(stderr, "Created index buffer with length: %lu\n", (unsigned long)indexBuffer.length);
         
         // Store buffers
         metalModel->vertexBuffers[i] = vertexBuffer;
         metalModel->indexBuffers[i] = indexBuffer;
         metalModel->indexCounts[i] = mesh->index_count;
+        
+        fprintf(stderr, "Stored buffers for mesh %u: vertexBuffer=%p, indexBuffer=%p, length=%lu\n", 
+                i, vertexBuffer, indexBuffer, (unsigned long)indexBuffer.length);
         
         // Free temporary vertex data
         free(vertexData);
@@ -531,6 +543,8 @@ void metal_engine_render_model_direct(MetalEngine* engine, MetalModelHandle mode
     MetalModel* metalModel = (MetalModel*)model;
     id<MTLRenderCommandEncoder> encoder = (__bridge id<MTLRenderCommandEncoder>)renderEncoder;
     
+    fprintf(stderr, "Rendering model: %s with %u meshes\n", metalModel->name, metalModel->meshCount);
+    
     // Render each mesh
     for (uint32_t i = 0; i < metalModel->meshCount; i++) {
         id<MTLBuffer> vertexBuffer = metalModel->vertexBuffers[i];
@@ -542,10 +556,16 @@ void metal_engine_render_model_direct(MetalEngine* engine, MetalModelHandle mode
             continue;
         }
         
+        fprintf(stderr, "Rendering mesh %u: vertexBuffer=%p, indexBuffer=%p, indexCount=%u\n", 
+                i, vertexBuffer, indexBuffer, indexCount);
+        
         // Set vertex buffer
         [encoder setVertexBuffer:vertexBuffer offset:0 atIndex:BufferIndexVertices];
         
         // Draw indexed primitives
+        fprintf(stderr, "Drawing mesh %u: indexCount=%u, indexBuffer.length=%lu\n", 
+                i, indexCount, (unsigned long)indexBuffer.length);
+        fprintf(stderr, "Buffer pointer during draw: %p\n", indexBuffer);
         [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
                                 indexCount:indexCount
                                  indexType:MTLIndexTypeUInt32
@@ -768,7 +788,7 @@ void metal_engine_update_game_state(MetalEngine* engine) {
 }
 
 void metal_engine_update_game_state_from_engine_state(MetalEngine* engine, void* engineState) {
-    NSLog(@"=== FUNCTION CALLED ===");
+    // Function called silently
     
     if (!engine || !engineState) {
         NSLog(@"ERROR: engine=%p, engineState=%p", engine, engineState);
@@ -778,29 +798,27 @@ void metal_engine_update_game_state_from_engine_state(MetalEngine* engine, void*
     MetalEngineImpl* impl = (MetalEngineImpl*)engine;
     MetalUniforms* uniforms = (MetalUniforms*)impl->uniformBufferAddress;
     
-    NSLog(@"impl=%p, uniforms=%p", impl, uniforms);
+    // Impl and uniforms accessed silently
     
     // Cast to access engine state fields directly
     // We know the structure layout from engine_main.h
     char* base = (char*)engineState;
     
     // Access fields using correct offsets based on EngineStateStruct layout
-    // state (4) + camera_position (12) + camera_target (12) + camera_up (12) + padding (8) + view_matrix (64) = 112
+    // state (4) + camera_position (12) + camera_target (12) + camera_up (12) + padding (8) + view_matrix (64) + projection_matrix (64) + model_matrix (64) = 240
     float* projectionMatrix = (float*)(base + 112);  // projection_matrix starts at offset 112
     float* viewMatrix = (float*)(base + 48);         // view_matrix starts at offset 48
     float* modelMatrix = (float*)(base + 176);       // model_matrix starts at offset 176
     float* cameraPosition = (float*)(base + 4);      // camera_position starts at offset 4
-    float* rotationAngle = (float*)(base + 240);     // model_rotation_angle starts at offset 240
     
-    NSLog(@"Offsets: proj=%p, view=%p, model=%p, cam=%p, rot=%p", 
-            projectionMatrix, viewMatrix, modelMatrix, cameraPosition, rotationAngle);
+    // Matrix offsets calculated silently
     
     // Read matrices directly from engine state and convert to proper format
     mat4_to_float_array((mat4_t*)projectionMatrix, uniforms->projectionMatrix);
     mat4_to_float_array((mat4_t*)viewMatrix, uniforms->viewMatrix);
     mat4_to_float_array((mat4_t*)modelMatrix, uniforms->modelMatrix);
     
-    NSLog(@"Using matrices from engine state");
+    // Using matrices from engine state
     
     // Calculate modelViewMatrix from engine state
     mat4_t modelViewMatrix = mat4_mul_mat4(*(mat4_t*)viewMatrix, *(mat4_t*)modelMatrix);
@@ -811,29 +829,12 @@ void metal_engine_update_game_state_from_engine_state(MetalEngine* engine, void*
     mat4_to_float_array(&normalMatrix, uniforms->normalMatrix);
     
     // Use camera position from engine state
-    NSLog(@"Raw camera position bytes at %p: [%.3f, %.3f, %.3f]", 
-            cameraPosition, cameraPosition[0], cameraPosition[1], cameraPosition[2]);
-    
     memcpy(uniforms->cameraPosition, cameraPosition, sizeof(float) * 3);
     
-    NSLog(@"Camera position after memcpy: (%.3f, %.3f, %.3f)", 
-            uniforms->cameraPosition[0], uniforms->cameraPosition[1], uniforms->cameraPosition[2]);
+    // Use a simple time value for animation (can be replaced with actual time later)
+    uniforms->time = impl->rotationAngle;
     
-    uniforms->time = *rotationAngle;
-    
-    // Debug: Print matrix values to see what's being passed to shaders
-    NSLog(@"=== MATRIX DEBUG ===");
-    NSLog(@"Projection Matrix [0,0]: %.3f, [0,1]: %.3f, [0,2]: %.3f, [0,3]: %.3f", 
-            uniforms->projectionMatrix[0], uniforms->projectionMatrix[1], uniforms->projectionMatrix[2], uniforms->projectionMatrix[3]);
-    NSLog(@"View Matrix [0,0]: %.3f, [0,1]: %.3f, [0,2]: %.3f, [0,3]: %.3f", 
-            uniforms->viewMatrix[0], uniforms->viewMatrix[1], uniforms->viewMatrix[2], uniforms->viewMatrix[3]);
-    NSLog(@"Model Matrix [0,0]: %.3f, [0,1]: %.3f, [0,2]: %.3f, [0,3]: %.3f", 
-            uniforms->modelMatrix[0], uniforms->modelMatrix[1], uniforms->modelMatrix[2], uniforms->modelMatrix[3]);
-    NSLog(@"ModelView Matrix [0,0]: %.3f, [0,1]: %.3f, [0,2]: %.3f, [0,3]: %.3f", 
-            uniforms->modelViewMatrix[0], uniforms->modelViewMatrix[1], uniforms->modelViewMatrix[2], uniforms->modelViewMatrix[3]);
-    NSLog(@"Camera Position: (%.3f, %.3f, %.3f)", uniforms->cameraPosition[0], uniforms->cameraPosition[1], uniforms->cameraPosition[2]);
-    NSLog(@"Rotation Angle: %.3f", *rotationAngle);
-    NSLog(@"===================");
+    // Matrix values updated silently
 }
 
 void metal_engine_render_frame(MetalEngine* engine, MetalViewHandle view, void* engineState) {
@@ -906,10 +907,25 @@ void metal_engine_render_frame(MetalEngine* engine, MetalViewHandle view, void* 
         EngineStateStruct* engineStateStruct = (EngineStateStruct*)engineState;
         uint32_t entityCount = engineStateStruct && engineStateStruct->world ? world_get_entity_count(engineStateStruct->world) : 0;
         
+        // Metal render frame called silently
+        
         if (entityCount > 0) {
             // Render entities using the world system
-            /* fprintf(stderr, "Rendering %u entities\n", entityCount); */
+            // Rendering entities silently
             world_render(engineStateStruct->world, engine, engineState);
+            
+            // After world rendering, render the first entity's model
+            if (engineStateStruct->world) {
+                for (uint32_t i = 0; i < engineStateStruct->world->max_entities; i++) {
+                    WorldEntity* entity = &engineStateStruct->world->entities[i];
+                    if (entity->id != 0 && entity->is_active && entity->metal_model) {
+                        // Render the entity's model
+                        fprintf(stderr, "About to render entity %u model: %p\n", entity->id, entity->metal_model);
+                        metal_engine_render_model_direct(engine, entity->metal_model, (__bridge void*)renderEncoder);
+                        break; // Only render the first entity for now
+                    }
+                }
+            }
         } else if (impl->uploadedModel) {
             // Fallback: render uploaded model if no entities but model exists
             /* fprintf(stderr, "Rendering uploaded model: %s\n", impl->uploadedModel->name); */

@@ -1,4 +1,5 @@
 #include "engine_world.h"
+#include "engine_main.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -304,13 +305,16 @@ void entity_render(WorldEntity* entity, MetalEngine* metal_engine, void* engine_
         return;
     }
     
-    // For now, we'll use the existing Metal engine rendering system
-    // The actual rendering will be handled by the Metal engine's render_model function
-    // This is a placeholder that will be integrated with the Metal rendering pipeline
+    // Get the entity's transformation matrix
+    mat4_t entityTransform = entity_get_transform_matrix(entity);
     
-    // TODO: Integrate with Metal engine's entity rendering system
-    // This will involve setting up the transformation matrices for the entity
-    // and calling the appropriate Metal rendering functions
+    // Update the engine state's model matrix with the entity's transform
+    EngineStateStruct* engineState = (EngineStateStruct*)engine_state;
+    engineState->model_matrix = entityTransform;
+    
+    // The actual rendering will be handled by the Metal engine's render_model function
+    // which is called from the Metal render frame after we update the model matrix
+    // Entity rendered silently
 }
 
 // ============================================================================

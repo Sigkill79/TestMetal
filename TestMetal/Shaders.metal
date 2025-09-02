@@ -95,11 +95,19 @@ fragment float4 fragmentShader(ColorInOut in [[stage_in]],
                                constant Uniforms & uniforms [[ buffer(2) ]],
                                texture2d<half> colorMap     [[ texture(0) ]])
 {
-    constexpr sampler colorSampler(mip_filter::linear,
-                                   mag_filter::linear,
-                                   min_filter::linear);
-
-    half4 colorSample = colorMap.sample(colorSampler, in.texCoord.xy);
+    // Use a solid color as fallback if no texture is available
+    float3 baseColor = float3(0.5, 0.8, 1.0); // Light blue color
+    
+    // Try to sample texture if available, otherwise use base color
+    half4 colorSample;
+    if (colorMap.get_width() > 0 && colorMap.get_height() > 0) {
+        constexpr sampler colorSampler(mip_filter::linear,
+                                       mag_filter::linear,
+                                       min_filter::linear);
+        colorSample = colorMap.sample(colorSampler, in.texCoord.xy);
+    } else {
+        colorSample = half4(half3(baseColor), 1.0);
+    }
     
     // Metal 3.0: Add basic lighting calculation
     float3 lightDir = normalize(float3(1.0, 1.0, 1.0));
