@@ -213,7 +213,6 @@ void engine_resize_viewport(EngineStateStruct* engine, float width, float height
 
 // Update engine state and render frame
 void engine_update(EngineStateStruct* engineState) {
-    /* fprintf(stderr, "=== UPDATE FUNCTION START ===\n"); */
     
     if(!engineState) {
         fprintf(stderr, "Error: engineState is NULL in update()\n");
@@ -223,7 +222,6 @@ void engine_update(EngineStateStruct* engineState) {
     // Engine update called silently
 
     if (engineState->state == ENGINE_STATE_RUNNING) {
-        /* fprintf(stderr, "Engine is running, updating world entities...\n"); */
         
         // Update world entities (for now, just animate the first entity if it exists)
         if (engineState->world && engineState->world->entity_count > 0) {
@@ -248,30 +246,16 @@ void engine_update(EngineStateStruct* engineState) {
                 // Entity rotation updated silently
             }
         }
-        
-        // Debug: Print world state
-       /*  fprintf(stderr, "=== WORLD DEBUG ===\n");
-        fprintf(stderr, "Camera position: (%.3f, %.3f, %.3f)\n", 
-                engineState->camera_position.x, 
-                engineState->camera_position.y, 
-                engineState->camera_position.z);
-        fprintf(stderr, "World entity count: %u\n", 
-                engineState->world ? world_get_entity_count(engineState->world) : 0);
-        fprintf(stderr, "===================\n"); */
 
     } else {
         fprintf(stderr, "Engine is not running, state: %d\n", engineState->state);
     }
-
-    /* fprintf(stderr, "About to call engine_render_frame...\n"); */
 
     if (engineState->metal_engine) {
         metal_engine_render_frame((MetalEngine*)engineState->metal_engine, engineState->view_handle, engineState);
     } else {
         fprintf(stderr, "ERROR: Engine or Metal engine is NULL - engine=%p, metal_engine=%p\n", engineState, engineState ? engineState->metal_engine : NULL);
     }
-
-    /* fprintf(stderr, "=== UPDATE FUNCTION END ===\n"); */
 }
 
 // Shutdown engine and free memory
