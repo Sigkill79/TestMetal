@@ -585,6 +585,55 @@ MetalTextureHandle texture_loader_load_with_options(TextureLoaderHandle loader,
     return texture;
 }
 
+MetalTextureHandle texture_loader_load_sdf(TextureLoaderHandle loader, const char* filename) {
+    TEXTURE_DEBUG("Loading SDF texture: %s", filename);
+    
+    if (!loader || !filename) {
+        TEXTURE_ERROR("Invalid parameters for SDF texture loading: loader=%p, filename=%s", loader, filename);
+        return NULL;
+    }
+    
+    TextureLoader* tl = (TextureLoader*)loader;
+    if (!tl->isInitialized) {
+        TEXTURE_ERROR("Texture loader not initialized for SDF loading");
+        return NULL;
+    }
+    
+    // Check cache first (SDF textures can be cached like regular textures)
+    TEXTURE_DEBUG("Checking cache for SDF texture: %s", filename);
+    TextureCacheEntry* entry = texture_loader_find_entry(loader, filename);
+    if (entry) {
+        TEXTURE_DEBUG("Cache hit for SDF texture: %s", filename);
+        return entry->texture;
+    }
+    
+    TEXTURE_DEBUG("Cache miss for SDF texture: %s, loading from file", filename);
+    
+    // Set up SDF-specific loading options
+    TextureLoadOptions sdfOptions = {
+        .pixelFormat = MTLPixelFormatR8Unorm,  // Single channel for SDF
+        .generateMipmaps = 0,                   // SDFs typically don't use mipmaps
+        .flipVertically = 0,
+        .srgb = 0                               // SDFs are not color data
+    };
+    
+    // Load from file with SDF options
+    MetalTextureHandle texture = texture_loader_load_from_file(loader, filename, &sdfOptions);
+    if (!texture) {
+        TEXTURE_ERROR("Failed to load SDF texture from file: %s, returning fallback", filename);
+        return tl->fallbackTexture;
+    }
+    
+    TEXTURE_DEBUG("Successfully loaded SDF texture: %s", filename);
+    
+    // Add to cache
+    // Note: We need to get texture dimensions for cache entry
+    // For now, we'll use placeholder values
+    texture_loader_add_to_cache(loader, filename, texture, 256, 256, 1);
+    
+    return texture;
+}
+
 int texture_loader_preload(TextureLoaderHandle loader, const char** filenames, uint32_t count) {
     if (!loader || !filenames || count == 0) return 0;
     

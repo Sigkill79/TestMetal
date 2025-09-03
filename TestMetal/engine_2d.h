@@ -23,6 +23,12 @@ typedef struct {
     float texcoord[2];    // Texture coordinates (u, v)
 } UI2DVertex;
 
+// UI element types
+typedef enum {
+    UI_ELEMENT_TYPE_TEXTURE = 0,
+    UI_ELEMENT_TYPE_SDF = 1
+} UIElementType;
+
 // UI element structure
 typedef struct {
     MetalTextureHandle texture;
@@ -31,6 +37,15 @@ typedef struct {
     float x, y;           // Top-left position in screen coordinates
     float width, height;  // Size in pixels (1:1 mapping)
     int isActive;
+    
+    // SDF-specific properties
+    UIElementType type;
+    vec4_t fillColor;           // RGBA fill color
+    vec4_t outlineColor;        // RGBA outline color
+    float edgeDistance;         // Edge threshold (default: 0.5)
+    float outlineDistance;      // Outline threshold (default: 0.4)
+    float smoothing;            // Anti-aliasing (default: 0.1)
+    int hasOutline;             // Enable outline rendering
 } UIElement;
 
 // UI uniforms structure
@@ -81,6 +96,18 @@ void engine_2d_clear_elements(Engine2D* ui2d);
 
 // UI element rendering
 int engine_2d_draw_image(Engine2D* ui2d, float x, float y, MetalTextureHandle texture);
+
+// SDF-specific rendering functions
+int engine_2d_draw_sdf(Engine2D* ui2d, float x, float y, MetalTextureHandle sdfTexture,
+                      vec4_t fillColor, vec4_t outlineColor, float edgeDistance, 
+                      float outlineDistance, float smoothing, int hasOutline);
+
+// Convenience functions with defaults
+int engine_2d_draw_sdf_simple(Engine2D* ui2d, float x, float y, MetalTextureHandle sdfTexture,
+                             vec4_t fillColor);
+
+int engine_2d_draw_sdf_with_outline(Engine2D* ui2d, float x, float y, MetalTextureHandle sdfTexture,
+                                   vec4_t fillColor, vec4_t outlineColor);
 
 // Internal rendering (called from Metal engine)
 void engine_2d_render_pass(Engine2D* ui2d, void* renderEncoder, float screenWidth, float screenHeight);

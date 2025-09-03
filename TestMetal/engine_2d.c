@@ -202,6 +202,9 @@ int engine_2d_draw_image(Engine2D* ui2d, float x, float y, MetalTextureHandle te
     element->indexCount = UI_INDICES_PER_ELEMENT;
     element->isActive = 1;
     
+    // Set as regular texture element
+    element->type = UI_ELEMENT_TYPE_TEXTURE;
+    
     // Update counts
     ui2d->elementCount++;
     ui2d->vertexCount += UI_VERTICES_PER_ELEMENT;
@@ -211,6 +214,65 @@ int engine_2d_draw_image(Engine2D* ui2d, float x, float y, MetalTextureHandle te
              x, y, element->width, element->height, ui2d->elementCount);
     
     return 1;
+}
+
+int engine_2d_draw_sdf(Engine2D* ui2d, float x, float y, MetalTextureHandle sdfTexture,
+                      vec4_t fillColor, vec4_t outlineColor, float edgeDistance, 
+                      float outlineDistance, float smoothing, int hasOutline) {
+    if (!ui2d || !ui2d->elements || !sdfTexture) {
+        UI_ERROR("Invalid parameters for draw_sdf");
+        return 0;
+    }
+    
+    if (ui2d->elementCount >= ui2d->maxElements) {
+        UI_ERROR("Maximum UI elements reached (%u)", ui2d->maxElements);
+        return 0;
+    }
+    
+    // Get the element
+    UIElement* element = &ui2d->elements[ui2d->elementCount];
+    
+    // Set element properties
+    element->texture = sdfTexture;
+    element->x = x;
+    element->y = y;
+    element->width = 256.0f;  // Default size for testing - will be updated with actual texture size
+    element->height = 256.0f; // Default size for testing - will be updated with actual texture size
+    element->startIndex = ui2d->indexCount;
+    element->indexCount = UI_INDICES_PER_ELEMENT;
+    element->isActive = 1;
+    
+    // Set as SDF element
+    element->type = UI_ELEMENT_TYPE_SDF;
+    element->fillColor = fillColor;
+    element->outlineColor = outlineColor;
+    element->edgeDistance = edgeDistance;
+    element->outlineDistance = outlineDistance;
+    element->smoothing = smoothing;
+    element->hasOutline = hasOutline;
+    
+    // Update counts
+    ui2d->elementCount++;
+    ui2d->vertexCount += UI_VERTICES_PER_ELEMENT;
+    ui2d->indexCount += UI_INDICES_PER_ELEMENT;
+    
+    UI_DEBUG("Added SDF element: x=%.1f, y=%.1f, size=%.0fx%.0f, elementCount=%u", 
+             x, y, element->width, element->height, ui2d->elementCount);
+    
+    return 1;
+}
+
+int engine_2d_draw_sdf_simple(Engine2D* ui2d, float x, float y, MetalTextureHandle sdfTexture,
+                             vec4_t fillColor) {
+    return engine_2d_draw_sdf(ui2d, x, y, sdfTexture, fillColor, 
+                             vec4(0.0f, 0.0f, 0.0f, 0.0f), // No outline
+                             0.5f, 0.4f, 0.1f, 0); // Default SDF parameters
+}
+
+int engine_2d_draw_sdf_with_outline(Engine2D* ui2d, float x, float y, MetalTextureHandle sdfTexture,
+                                   vec4_t fillColor, vec4_t outlineColor) {
+    return engine_2d_draw_sdf(ui2d, x, y, sdfTexture, fillColor, outlineColor,
+                             0.5f, 0.4f, 0.1f, 1); // Default SDF parameters with outline
 }
 
 void engine_2d_render_pass(Engine2D* ui2d, void* renderEncoder, float screenWidth, float screenHeight) {

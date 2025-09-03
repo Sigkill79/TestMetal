@@ -1,18 +1,14 @@
 #include <metal_stdlib>
 #include <metal_geometric>
 #include <metal_math>
+#include "ShaderTypes.h"
 
 using namespace metal;
 
 // ============================================================================
 // UI 2D SHADER STRUCTURES
 // ============================================================================
-
-// UI uniforms structure
-struct UIUniforms {
-    float screenWidth;
-    float screenHeight;
-};
+// Note: UIUniforms and SDFUniforms are now defined in ShaderTypes.h
 
 // UI vertex input structure
 struct UI2DVertexIn {
@@ -67,4 +63,34 @@ fragment float4 ui_fragment_main(UI2DVertexOut in [[stage_in]],
                                 texture2d<float> uiTexture [[texture(0)]],
                                 sampler uiSampler [[sampler(0)]]) {
     return uiTexture.sample(uiSampler, in.texcoord);
+}
+
+// ============================================================================
+// SDF FRAGMENT SHADER
+// ============================================================================
+
+fragment float4 sdf_fragment_main(UI2DVertexOut in [[stage_in]],
+                                 texture2d<float> sdfTexture [[texture(0)]],
+                                 sampler sdfSampler [[sampler(0)]],
+                                 constant SDFUniforms& sdfUniforms [[buffer(1)]]) {
+    // Sample SDF texture (distance values in red channel)
+    float distance = sdfTexture.sample(sdfSampler, in.texcoord).r;
+    
+    // Calculate fill alpha based on distance
+    float fillAlpha = smoothstep(sdfUniforms.edgeDistance - sdfUniforms.smoothing,
+                                sdfUniforms.edgeDistance + sdfUniforms.smoothing,
+                                distance);
+    
+    float4 finalColor = sdfUniforms.fillColor * fillAlpha;
+    
+    // Add outline if enabled
+    if (sdfUniforms.hasOutline) {
+        float outlineAlpha = smoothstep(sdfUniforms.outlineDistance - sdfUniforms.smoothing,
+                                      sdfUniforms.outlineDistance + sdfUniforms.smoothing,
+                                      distance);
+        float4 outlineColor = sdfUniforms.outlineColor * outlineAlpha;
+        finalColor = mix(outlineColor, finalColor, fillAlpha);
+    }
+    
+    return finalColor;
 }

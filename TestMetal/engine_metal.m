@@ -2,6 +2,7 @@
 #import "engine_main.h"
 #import "engine_world.h"
 #import "engine_2d.h"
+#import "ShaderTypes.h"
 // engine_metal_shaders.h removed to avoid typedef conflicts
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
@@ -143,6 +144,7 @@ typedef struct {
 // UI 2D state
 typedef struct {
     id<MTLRenderPipelineState> uiPipelineState;
+    id<MTLRenderPipelineState> sdfPipelineState;
     id<MTLDepthStencilState> uiDepthState;
     id<MTLSamplerState> uiSamplerState;
     id<MTLBuffer> uiVertexBuffer;
@@ -428,6 +430,12 @@ int metal_engine_load_metal_with_view(MetalEngine* engine, MetalViewHandle view)
     // Create UI pipeline state
     if (!metal_engine_create_ui_pipeline(engine)) {
          METAL_ERROR("Failed to create UI pipeline state");
+         return 0;
+    }
+    
+    // Create SDF pipeline state
+    if (!metal_engine_create_sdf_pipeline(engine)) {
+         METAL_ERROR("Failed to create SDF pipeline state");
          return 0;
     }
     
@@ -1318,6 +1326,73 @@ int metal_engine_create_ui_pipeline(MetalEngine* engine) {
     return 1;
 }
 
+int metal_engine_create_sdf_pipeline(MetalEngine* engine) {
+    if (!engine) return 0;
+    
+    MetalEngineImpl* impl = (MetalEngineImpl*)engine;
+    
+    // Get default library
+    id<MTLLibrary> defaultLibrary = [impl->device.device newDefaultLibrary];
+    if (!defaultLibrary) {
+        METAL_ERROR("Failed to create default library for SDF");
+        return 0;
+    }
+    
+    // Get SDF vertex and fragment functions
+    id<MTLFunction> sdfVertexFunction = [defaultLibrary newFunctionWithName:@"ui_vertex_main"];
+    id<MTLFunction> sdfFragmentFunction = [defaultLibrary newFunctionWithName:@"sdf_fragment_main"];
+    
+    if (!sdfVertexFunction || !sdfFragmentFunction) {
+        METAL_ERROR("Failed to get SDF shader functions");
+        return 0;
+    }
+    
+    // Create SDF vertex descriptor (same as UI)
+    MTLVertexDescriptor* sdfVertexDescriptor = [[MTLVertexDescriptor alloc] init];
+    sdfVertexDescriptor.attributes[0].format = MTLVertexFormatFloat2;
+    sdfVertexDescriptor.attributes[0].offset = 0;
+    sdfVertexDescriptor.attributes[0].bufferIndex = 0;
+    
+    sdfVertexDescriptor.attributes[1].format = MTLVertexFormatFloat2;
+    sdfVertexDescriptor.attributes[1].offset = 8;
+    sdfVertexDescriptor.attributes[1].bufferIndex = 0;
+    
+    sdfVertexDescriptor.layouts[0].stride = 16; // 2 floats position + 2 floats texcoord
+    sdfVertexDescriptor.layouts[0].stepRate = 1;
+    sdfVertexDescriptor.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
+    
+    // Create SDF pipeline state descriptor
+    MTLRenderPipelineDescriptor* sdfPipelineDescriptor = [[MTLRenderPipelineDescriptor alloc] init];
+    sdfPipelineDescriptor.label = @"SDFPipeline";
+    sdfPipelineDescriptor.rasterSampleCount = 1;
+    sdfPipelineDescriptor.vertexFunction = sdfVertexFunction;
+    sdfPipelineDescriptor.fragmentFunction = sdfFragmentFunction;
+    sdfPipelineDescriptor.vertexDescriptor = sdfVertexDescriptor;
+    sdfPipelineDescriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm_sRGB;
+    sdfPipelineDescriptor.colorAttachments[0].blendingEnabled = YES;
+    sdfPipelineDescriptor.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
+    sdfPipelineDescriptor.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
+    sdfPipelineDescriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+    sdfPipelineDescriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
+    sdfPipelineDescriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    sdfPipelineDescriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    
+    // Set depth and stencil pixel formats to match the framebuffer
+    sdfPipelineDescriptor.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float_Stencil8;
+    sdfPipelineDescriptor.stencilAttachmentPixelFormat = MTLPixelFormatDepth32Float_Stencil8;
+    
+    // Create SDF pipeline state
+    NSError* error = nil;
+    impl->ui.sdfPipelineState = [impl->device.device newRenderPipelineStateWithDescriptor:sdfPipelineDescriptor error:&error];
+    if (!impl->ui.sdfPipelineState) {
+        METAL_ERROR("Failed to create SDF pipeline state: %s", error.localizedDescription.UTF8String);
+        return 0;
+    }
+    
+    METAL_INFO("SDF pipeline created successfully");
+    return 1;
+}
+
 MetalTextureHandle metal_engine_get_colormap_texture(MetalEngine* engine) {
     if (!engine) return NULL;
     
@@ -1340,26 +1415,9 @@ void metal_engine_render_ui_pass(MetalEngine* engine, void* renderEncoder, void*
     
     METAL_DEBUG("Rendering UI pass: %u elements", ui->elementCount);
     
-    // Set UI pipeline state
-    [encoder setRenderPipelineState:impl->ui.uiPipelineState];
-    [encoder setDepthStencilState:impl->ui.uiDepthState];
-    
-    // Debug: Log UI pipeline state information
-    METAL_DEBUG("UI Pipeline: Using pipeline state %p", impl->ui.uiPipelineState);
-    
     // Disable triangle culling for UI rendering (we want to see all faces)
     [encoder setCullMode:MTLCullModeNone];
-    
-    // Update uniform buffer with screen dimensions
-    UIUniforms* uniforms = (UIUniforms*)impl->ui.uiUniformBuffer.contents;
-    uniforms->screenWidth = (float)impl->render.viewportWidth;
-    uniforms->screenHeight = (float)impl->render.viewportHeight;
-    
-    // Debug: Log uniform values
-    NSLog(@"UI Uniforms: screenWidth=%.1f, screenHeight=%.1f", uniforms->screenWidth, uniforms->screenHeight);
-    
-    // Bind uniform buffer at index 1 (index 0 is used for vertex data)
-    [encoder setVertexBuffer:impl->ui.uiUniformBuffer offset:0 atIndex:1];
+    [encoder setDepthStencilState:impl->ui.uiDepthState];
     
     // Generate vertex and index data for all UI elements
     float* vertexData = (float*)impl->ui.uiVertexBuffer.contents;
@@ -1415,34 +1473,76 @@ void metal_engine_render_ui_pass(MetalEngine* engine, void* renderEncoder, void*
         indexOffset += 6;   // 6 indices
     }
     
-    // Bind vertex buffer
+    // Bind vertex buffer and sampler
     [encoder setVertexBuffer:impl->ui.uiVertexBuffer offset:0 atIndex:0];
     [encoder setFragmentSamplerState:impl->ui.uiSamplerState atIndex:0];
-
+    
+    // Track current pipeline state to minimize state changes
+    id<MTLRenderPipelineState> currentPipelineState = nil;
+    
+    // Render all elements in order
     for (uint32_t i = 0; i < ui->elementCount; i++) {
-
         UIElement* element = &ui->elements[i];
         if (!element->isActive) continue;
         
-        // Debug: Log texture information before binding
-        id<MTLTexture> texture = (__bridge id<MTLTexture> _Nullable)(element->texture);
-        if (texture) {
-            METAL_DEBUG("UI Element %u: Binding texture %p, format=%u, width=%lu, height=%lu", 
-                       i, texture, (unsigned int)texture.pixelFormat, (unsigned long)texture.width, (unsigned long)texture.height);
+        // Determine required pipeline state
+        id<MTLRenderPipelineState> requiredPipelineState;
+        if (element->type == UI_ELEMENT_TYPE_SDF) {
+            requiredPipelineState = impl->ui.sdfPipelineState;
         } else {
-            METAL_DEBUG("UI Element %u: NULL texture handle!", i);
+            requiredPipelineState = impl->ui.uiPipelineState;
         }
         
-        // Set texture and sampler (use ColorMap for now)
+        // Switch pipeline state if needed (accept the cost for proper draw order)
+        if (currentPipelineState != requiredPipelineState) {
+            [encoder setRenderPipelineState:requiredPipelineState];
+            currentPipelineState = requiredPipelineState;
+            METAL_DEBUG("Switched to %s pipeline state", 
+                       (element->type == UI_ELEMENT_TYPE_SDF) ? "SDF" : "UI");
+        }
+        
+        // Set element-specific uniforms and resources
+        if (element->type == UI_ELEMENT_TYPE_SDF) {
+            // Set SDF uniforms (convert vec4_t to simd_float4)
+            struct SDFUniforms sdfUniforms = {
+                .fillColor = {element->fillColor.x, element->fillColor.y, element->fillColor.z, element->fillColor.w},
+                .outlineColor = {element->outlineColor.x, element->outlineColor.y, element->outlineColor.z, element->outlineColor.w},
+                .edgeDistance = element->edgeDistance,
+                .outlineDistance = element->outlineDistance,
+                .smoothing = element->smoothing,
+                .hasOutline = element->hasOutline
+            };
+            [encoder setFragmentBytes:&sdfUniforms length:sizeof(struct SDFUniforms) atIndex:1];
+        } else {
+            // Set regular UI uniforms
+            UIUniforms uiUniforms = {
+                .screenWidth = (float)impl->render.viewportWidth,
+                .screenHeight = (float)impl->render.viewportHeight
+            };
+            [encoder setVertexBytes:&uiUniforms length:sizeof(UIUniforms) atIndex:1];
+        }
+        
+        // Set texture
+        id<MTLTexture> texture = (__bridge id<MTLTexture> _Nullable)(element->texture);
+        if (texture) {
+            METAL_DEBUG("Element %u (%s): Binding texture %p, format=%u, width=%lu, height=%lu", 
+                       i, (element->type == UI_ELEMENT_TYPE_SDF) ? "SDF" : "UI",
+                       texture, (unsigned int)texture.pixelFormat, 
+                       (unsigned long)texture.width, (unsigned long)texture.height);
+        } else {
+            METAL_DEBUG("Element %u (%s): NULL texture handle!", 
+                       i, (element->type == UI_ELEMENT_TYPE_SDF) ? "SDF" : "UI");
+        }
+        
         [encoder setFragmentTexture:texture atIndex:0];
         
-        // Draw all UI elements
+        // Draw element
         [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
                             indexCount:element->indexCount
-                            indexType:MTLIndexTypeUInt32
-                        indexBuffer:impl->ui.uiIndexBuffer
-                    indexBufferOffset:sizeof(int)*element->startIndex];
-    };
+                             indexType:MTLIndexTypeUInt32
+                           indexBuffer:impl->ui.uiIndexBuffer
+                     indexBufferOffset:sizeof(int)*element->startIndex];
+    }
     
     METAL_DEBUG("UI pass rendered: %u vertices, %u indices", vertexOffset / 4, indexOffset);
 }

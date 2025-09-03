@@ -283,7 +283,7 @@ void engine_update(EngineStateStruct* engineState) {
             }
         }
         
-        // Add UI elements for testing - render downloaded textures
+        // Add UI elements for testing - render downloaded textures and SDF
         if (engineState->ui_2d && engineState->texture_loader) {
              // Load and display our downloaded textures in a row
              MetalTextureHandle woodTexture = texture_loader_load(engineState->texture_loader, "wood_texture.jpg");
@@ -299,6 +299,34 @@ void engine_update(EngineStateStruct* engineState) {
              MetalTextureHandle fabricTexture = texture_loader_load(engineState->texture_loader, "fabric_texture.jpg");
              if (fabricTexture) {
                  engine_2d_draw_image(engineState->ui_2d, 512.0f, 0.0f, fabricTexture);
+             }
+             
+             // SDF Testing - render sdf_texture.png in multiple ways for comparison
+             MetalTextureHandle sdfTexture = texture_loader_load_sdf(engineState->texture_loader, "sdf_texture.png");
+             if (sdfTexture) {
+                 // Test 1: Original texture as regular image (shows raw SDF data)
+                 engine_2d_draw_image(engineState->ui_2d, 0.0f, 256.0f, sdfTexture);
+                 
+                 // Test 2: SDF with simple red fill
+                 engine_2d_draw_sdf_simple(engineState->ui_2d, 256.0f, 256.0f, sdfTexture, 
+                                         vec4(1.0f, 0.0f, 0.0f, 1.0f)); // Red fill
+                 
+                 // Test 3: SDF with green fill and black outline
+                 engine_2d_draw_sdf_with_outline(engineState->ui_2d, 512.0f, 256.0f, sdfTexture,
+                                               vec4(0.0f, 1.0f, 0.0f, 1.0f), // Green fill
+                                               vec4(0.0f, 0.0f, 0.0f, 1.0f)); // Black outline
+                 
+                 // Test 4: SDF with different edge distance (blue fill, white outline)
+                 engine_2d_draw_sdf(engineState->ui_2d, 0.0f, 512.0f, sdfTexture,
+                                   vec4(0.0f, 0.0f, 1.0f, 1.0f), // Blue fill
+                                   vec4(1.0f, 1.0f, 1.0f, 1.0f), // White outline
+                                   0.3f, 0.2f, 0.05f, 1); // Different edge/outline distances
+                 
+                 // Test 5: SDF with custom parameters (yellow fill, black outline)
+                 engine_2d_draw_sdf(engineState->ui_2d, 256.0f, 512.0f, sdfTexture,
+                                   vec4(1.0f, 1.0f, 0.0f, 1.0f), // Yellow fill
+                                   vec4(0.0f, 0.0f, 0.0f, 1.0f), // Black outline
+                                   0.7f, 0.6f, 0.2f, 1); // Sharp edges, wide outline
              }
         }
 

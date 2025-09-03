@@ -163,6 +163,7 @@ void metal_engine_set_engine_state(MetalEngine* engine, void* engineState);
 // UI 2D rendering functions
 void metal_engine_render_ui_pass(MetalEngine* engine, void* renderEncoder, void* ui2d);
 int metal_engine_create_ui_pipeline(MetalEngine* engine);
+int metal_engine_create_sdf_pipeline(MetalEngine* engine);
 MetalTextureHandle metal_engine_get_colormap_texture(MetalEngine* engine);
 
 #ifdef __cplusplus
