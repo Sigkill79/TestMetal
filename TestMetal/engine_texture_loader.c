@@ -12,7 +12,7 @@
 
 // Include stb_image
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include "libraries/stb/stb_image.h"
 
 // Metal pixel format constants for C compatibility (correct values from Metal headers)
 #define MTLPixelFormatR8Unorm 10
@@ -526,7 +526,7 @@ void texture_loader_clean_cache(TextureLoaderHandle loader) {
 }
 
 MetalTextureHandle texture_loader_load(TextureLoaderHandle loader, const char* filename) {
-    TEXTURE_DEBUG("Loading texture: %s", filename);
+
     
     if (!loader || !filename) {
         TEXTURE_ERROR("Invalid parameters: loader=%p, filename=%s", loader, filename);
@@ -540,14 +540,14 @@ MetalTextureHandle texture_loader_load(TextureLoaderHandle loader, const char* f
     }
     
     // Check cache first
-    TEXTURE_DEBUG("Checking cache for: %s", filename);
+
     TextureCacheEntry* entry = texture_loader_find_entry(loader, filename);
     if (entry) {
-        TEXTURE_DEBUG("Cache hit for: %s", filename);
+
         return entry->texture;
     }
     
-    TEXTURE_DEBUG("Cache miss for: %s, loading from file", filename);
+
     
     // Load from file
     MetalTextureHandle texture = texture_loader_load_from_file(loader, filename, NULL);
@@ -586,7 +586,7 @@ MetalTextureHandle texture_loader_load_with_options(TextureLoaderHandle loader,
 }
 
 MetalTextureHandle texture_loader_load_sdf(TextureLoaderHandle loader, const char* filename) {
-    TEXTURE_DEBUG("Loading SDF texture: %s", filename);
+
     
     if (!loader || !filename) {
         TEXTURE_ERROR("Invalid parameters for SDF texture loading: loader=%p, filename=%s", loader, filename);
@@ -600,18 +600,20 @@ MetalTextureHandle texture_loader_load_sdf(TextureLoaderHandle loader, const cha
     }
     
     // Check cache first (SDF textures can be cached like regular textures)
-    TEXTURE_DEBUG("Checking cache for SDF texture: %s", filename);
+
     TextureCacheEntry* entry = texture_loader_find_entry(loader, filename);
     if (entry) {
-        TEXTURE_DEBUG("Cache hit for SDF texture: %s", filename);
+
         return entry->texture;
     }
     
-    TEXTURE_DEBUG("Cache miss for SDF texture: %s, loading from file", filename);
+
     
     // Set up SDF-specific loading options
+    // Note: We'll let the loader determine the format based on the actual texture
+    // For RGB SDFs, we'll use RGBA8Unorm and sample only the red channel in the shader
     TextureLoadOptions sdfOptions = {
-        .pixelFormat = MTLPixelFormatR8Unorm,  // Single channel for SDF
+        .pixelFormat = 0,                       // Let loader determine format
         .generateMipmaps = 0,                   // SDFs typically don't use mipmaps
         .flipVertically = 0,
         .srgb = 0                               // SDFs are not color data
@@ -626,12 +628,36 @@ MetalTextureHandle texture_loader_load_sdf(TextureLoaderHandle loader, const cha
     
     TEXTURE_DEBUG("Successfully loaded SDF texture: %s", filename);
     
-    // Add to cache
-    // Note: We need to get texture dimensions for cache entry
-    // For now, we'll use placeholder values
-    texture_loader_add_to_cache(loader, filename, texture, 256, 256, 1);
+    // Get actual texture dimensions for cache entry
+    uint32_t width, height;
+    if (texture_loader_get_texture_dimensions(texture, &width, &height)) {
+        TEXTURE_DEBUG("SDF texture actual dimensions: %ux%u", width, height);
+        texture_loader_add_to_cache(loader, filename, texture, width, height, 1);
+    } else {
+        TEXTURE_ERROR("Failed to get SDF texture dimensions, using fallback cache entry");
+        texture_loader_add_to_cache(loader, filename, texture, 256, 256, 1);
+    }
     
     return texture;
+}
+
+int texture_loader_get_texture_dimensions(MetalTextureHandle texture, uint32_t* width, uint32_t* height) {
+    if (!texture || !width || !height) {
+        TEXTURE_ERROR("Invalid parameters for get_texture_dimensions");
+        return 0;
+    }
+    
+    id<MTLTexture> mtlTexture = (__bridge id<MTLTexture> _Nullable)(texture);
+    if (!mtlTexture) {
+        TEXTURE_ERROR("Invalid Metal texture handle");
+        return 0;
+    }
+    
+    *width = (uint32_t)mtlTexture.width;
+    *height = (uint32_t)mtlTexture.height;
+    
+    
+    return 1;
 }
 
 int texture_loader_preload(TextureLoaderHandle loader, const char** filenames, uint32_t count) {

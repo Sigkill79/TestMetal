@@ -4,6 +4,7 @@
 #include "engine_world.h"
 #include "engine_2d.h"
 #include "engine_texture_loader.h"
+#include "engine_font.h"
 #include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
@@ -124,6 +125,17 @@ EngineStateStruct* engine_initialize(MetalViewHandle view, float viewport_width,
              engine_shutdown(engineState);
              return NULL;
          }
+        
+        // Initialize font system
+        char font_path[1024];
+        snprintf(font_path, sizeof(font_path), "%s/assets/Helvetica.ttf", resource_path);
+        engineState->default_font = engine_font_create(font_path, 64, 1.0f, engineState->metal_engine);
+        if (!engineState->default_font) {
+             fprintf(stderr, "Failed to initialize font system (continuing without fonts)\n");
+             engineState->default_font = NULL;
+        } else {
+             fprintf(stderr, "Font system initialized successfully\n");
+        }
         
         // Set engine state to running
         engineState->state = ENGINE_STATE_RUNNING;
@@ -328,6 +340,28 @@ void engine_update(EngineStateStruct* engineState) {
                                    vec4(0.0f, 0.0f, 0.0f, 1.0f), // Black outline
                                    0.7f, 0.6f, 0.2f, 1); // Sharp edges, wide outline
              }
+             
+             // Font Rendering Tests
+             if (engineState->default_font) {
+                 // Test 1: Basic font rendering
+                 vec2_t textPos = {50.0f, 768.0f};
+                 engine_font_render_text(engineState->default_font, engineState->ui_2d, textPos, 10.0f, 
+                                       "The quick fox jumps over the lazy dog.");
+                 
+                 // Test 2: Font rendering with different scale
+                 textPos = (vec2_t){50.0f, 800.0f};
+                 engine_font_render_text(engineState->default_font, engineState->ui_2d, textPos, 1.5f, 
+                                       "Scaled Text Test");
+                 
+                 // Test 3: Font rendering with text box
+                 textPos = (vec2_t){50.0f, 850.0f};
+                 engine_font_render_text(engineState->default_font, engineState->ui_2d, textPos, 1.0f, 
+                                           "Text Box Test");
+             } else {
+                 // Fallback: render text using basic shapes if font is not available
+                 // This is just a placeholder to show that font system is not available
+                 fprintf(stderr, "Font system not available - skipping font tests\n");
+             }
         }
 
     } else {
@@ -358,6 +392,12 @@ void engine_shutdown(EngineStateStruct* engineState) {
         if (engineState->texture_loader) {
              texture_loader_shutdown(engineState->texture_loader);
              engineState->texture_loader = NULL;
+        }
+        
+        // Shutdown font system
+        if (engineState->default_font) {
+             engine_font_destroy(engineState->default_font);
+             engineState->default_font = NULL;
         }
         
         // Shutdown world system

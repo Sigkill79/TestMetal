@@ -91,6 +91,9 @@ MetalTextureHandle texture_loader_load_with_options(TextureLoaderHandle loader,
 // SDF-specific loading
 MetalTextureHandle texture_loader_load_sdf(TextureLoaderHandle loader, const char* filename);
 
+// Texture dimension utilities
+int texture_loader_get_texture_dimensions(MetalTextureHandle texture, uint32_t* width, uint32_t* height);
+
 // Batch Operations
 int texture_loader_preload(TextureLoaderHandle loader, const char** filenames, uint32_t count);
 

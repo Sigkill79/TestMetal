@@ -46,6 +46,11 @@ typedef struct {
     float outlineDistance;      // Outline threshold (default: 0.4)
     float smoothing;            // Anti-aliasing (default: 0.1)
     int hasOutline;             // Enable outline rendering
+    
+    // Atlas-specific properties (for font rendering)
+    vec2_t texCoord;            // Texture coordinate offset in atlas
+    vec2_t texSize;             // Texture coordinate size in atlas
+    int isAtlas;                // Whether this element uses atlas coordinates
 } UIElement;
 
 // UI uniforms structure
@@ -108,6 +113,14 @@ int engine_2d_draw_sdf_simple(Engine2D* ui2d, float x, float y, MetalTextureHand
 
 int engine_2d_draw_sdf_with_outline(Engine2D* ui2d, float x, float y, MetalTextureHandle sdfTexture,
                                    vec4_t fillColor, vec4_t outlineColor);
+
+// SDF atlas rendering functions (for font rendering)
+int engine_2d_draw_sdf_atlas(Engine2D* ui2d, float x, float y, float width, float height, MetalTextureHandle sdfTexture,
+                            vec2_t texCoord, vec2_t texSize, vec4_t fillColor, vec4_t outlineColor,
+                            float edgeDistance, float outlineDistance, float smoothing, int hasOutline);
+
+int engine_2d_draw_sdf_atlas_simple(Engine2D* ui2d, float x, float y, float width, float height, MetalTextureHandle sdfTexture,
+                                   vec2_t texCoord, vec2_t texSize, vec4_t fillColor);
 
 // Internal rendering (called from Metal engine)
 void engine_2d_render_pass(Engine2D* ui2d, void* renderEncoder, float screenWidth, float screenHeight);

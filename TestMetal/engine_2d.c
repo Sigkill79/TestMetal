@@ -1,5 +1,6 @@
 #include "engine_2d.h"
 #include "engine_metal.h"
+#include "engine_texture_loader.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -196,22 +197,33 @@ int engine_2d_draw_image(Engine2D* ui2d, float x, float y, MetalTextureHandle te
     element->texture = texture;
     element->x = x;
     element->y = y;
-    element->width = 256.0f;  // Default size for testing - will be updated with actual texture size
-    element->height = 256.0f; // Default size for testing - will be updated with actual texture size
+    
+    // Get actual texture dimensions
+    uint32_t width, height;
+    if (texture_loader_get_texture_dimensions(texture, &width, &height)) {
+        element->width = (float)width;
+        element->height = (float)height;
+
+    } else {
+        element->width = 256.0f;  // Fallback size
+        element->height = 256.0f; // Fallback size
+
+    }
+    
     element->startIndex = ui2d->indexCount;
     element->indexCount = UI_INDICES_PER_ELEMENT;
     element->isActive = 1;
     
     // Set as regular texture element
     element->type = UI_ELEMENT_TYPE_TEXTURE;
+    element->isAtlas = 0; // Not using atlas coordinates
     
     // Update counts
     ui2d->elementCount++;
     ui2d->vertexCount += UI_VERTICES_PER_ELEMENT;
     ui2d->indexCount += UI_INDICES_PER_ELEMENT;
     
-    UI_DEBUG("Added UI element: x=%.1f, y=%.1f, size=%.0fx%.0f, elementCount=%u", 
-             x, y, element->width, element->height, ui2d->elementCount);
+
     
     return 1;
 }
@@ -236,8 +248,19 @@ int engine_2d_draw_sdf(Engine2D* ui2d, float x, float y, MetalTextureHandle sdfT
     element->texture = sdfTexture;
     element->x = x;
     element->y = y;
-    element->width = 256.0f;  // Default size for testing - will be updated with actual texture size
-    element->height = 256.0f; // Default size for testing - will be updated with actual texture size
+    
+    // Get actual texture dimensions
+    uint32_t width, height;
+    if (texture_loader_get_texture_dimensions(sdfTexture, &width, &height)) {
+        element->width = (float)width;
+        element->height = (float)height;
+
+    } else {
+        element->width = 256.0f;  // Fallback size
+        element->height = 256.0f; // Fallback size
+
+    }
+    
     element->startIndex = ui2d->indexCount;
     element->indexCount = UI_INDICES_PER_ELEMENT;
     element->isActive = 1;
@@ -250,14 +273,14 @@ int engine_2d_draw_sdf(Engine2D* ui2d, float x, float y, MetalTextureHandle sdfT
     element->outlineDistance = outlineDistance;
     element->smoothing = smoothing;
     element->hasOutline = hasOutline;
+    element->isAtlas = 0; // Not using atlas coordinates
     
     // Update counts
     ui2d->elementCount++;
     ui2d->vertexCount += UI_VERTICES_PER_ELEMENT;
     ui2d->indexCount += UI_INDICES_PER_ELEMENT;
     
-    UI_DEBUG("Added SDF element: x=%.1f, y=%.1f, size=%.0fx%.0f, elementCount=%u", 
-             x, y, element->width, element->height, ui2d->elementCount);
+
     
     return 1;
 }
@@ -275,15 +298,77 @@ int engine_2d_draw_sdf_with_outline(Engine2D* ui2d, float x, float y, MetalTextu
                              0.5f, 0.4f, 0.1f, 1); // Default SDF parameters with outline
 }
 
+int engine_2d_draw_sdf_atlas(Engine2D* ui2d, float x, float y, float width, float height, MetalTextureHandle sdfTexture,
+                            vec2_t texCoord, vec2_t texSize, vec4_t fillColor, vec4_t outlineColor,
+                            float edgeDistance, float outlineDistance, float smoothing, int hasOutline) {
+
+    
+    if (!ui2d || !ui2d->elements || !sdfTexture) {
+        UI_ERROR("Invalid parameters for draw_sdf_atlas");
+        return 0;
+    }
+    
+    if (ui2d->elementCount >= ui2d->maxElements) {
+        UI_ERROR("Maximum UI elements reached (%u)", ui2d->maxElements);
+        return 0;
+    }
+    
+    // Get the element
+    UIElement* element = &ui2d->elements[ui2d->elementCount];
+    
+    // Set element properties
+    element->texture = sdfTexture;
+    element->x = x;
+    element->y = y;
+    
+    // Use provided pixel dimensions for rendering
+    element->width = width;
+    element->height = height;
+    
+    element->startIndex = ui2d->indexCount;
+    element->indexCount = UI_INDICES_PER_ELEMENT;
+    element->isActive = 1;
+    
+    // Set as SDF element
+    element->type = UI_ELEMENT_TYPE_SDF;
+    element->fillColor = fillColor;
+    element->outlineColor = outlineColor;
+    element->edgeDistance = edgeDistance;
+    element->outlineDistance = outlineDistance;
+    element->smoothing = smoothing;
+    element->hasOutline = hasOutline;
+    
+    // Store atlas texture coordinates
+    element->texCoord = texCoord;
+    element->texSize = texSize;
+    element->isAtlas = 1;
+    
+    // Update counts
+    ui2d->elementCount++;
+    ui2d->vertexCount += UI_VERTICES_PER_ELEMENT;
+    ui2d->indexCount += UI_INDICES_PER_ELEMENT;
+    
+
+    
+    return 1;
+}
+
+int engine_2d_draw_sdf_atlas_simple(Engine2D* ui2d, float x, float y, float width, float height, MetalTextureHandle sdfTexture,
+                                   vec2_t texCoord, vec2_t texSize, vec4_t fillColor) {
+    return engine_2d_draw_sdf_atlas(ui2d, x, y, width, height, sdfTexture, texCoord, texSize, fillColor,
+                                   vec4(0.0f, 0.0f, 0.0f, 0.0f), // No outline
+                                   0.5f, 0.4f, 0.1f, 0); // Default SDF parameters
+}
+
 void engine_2d_render_pass(Engine2D* ui2d, void* renderEncoder, float screenWidth, float screenHeight) {
     if (!ui2d || !ui2d->elements || !renderEncoder || ui2d->elementCount == 0) {
         return;
     }
     
-    UI_DEBUG("Rendering UI pass: %u elements, screen=%.0fx%.0f", ui2d->elementCount, screenWidth, screenHeight);
+
     
     // This function will be implemented in the Metal engine
     // where we have access to the actual Metal objects
     // For now, we just log the call
-    UI_INFO("UI render pass called - implementation in Metal engine");
+
 }

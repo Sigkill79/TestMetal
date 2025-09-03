@@ -995,9 +995,7 @@ void metal_engine_render_frame(MetalEngine* engine, MetalViewHandle view, void* 
         
         // Set texture (uniforms will be bound per entity)
         if (impl->resources.colorMap) {
-            METAL_DEBUG("Main 3D: Binding ColorMap texture %p, format=%u, width=%lu, height=%lu", 
-                       impl->resources.colorMap, (unsigned int)impl->resources.colorMap.pixelFormat, 
-                       (unsigned long)impl->resources.colorMap.width, (unsigned long)impl->resources.colorMap.height);
+
         }
         [renderEncoder setFragmentTexture:impl->resources.colorMap atIndex:TextureIndexColorMap];
         
@@ -1413,7 +1411,7 @@ void metal_engine_render_ui_pass(MetalEngine* engine, void* renderEncoder, void*
         return;
     }
     
-    METAL_DEBUG("Rendering UI pass: %u elements", ui->elementCount);
+
     
     // Disable triangle culling for UI rendering (we want to see all faces)
     [encoder setCullMode:MTLCullModeNone];
@@ -1436,29 +1434,45 @@ void metal_engine_render_ui_pass(MetalEngine* engine, void* renderEncoder, void*
         float width = element->width;
         float height = element->height;
         
+        // Calculate texture coordinates based on whether this is an atlas element
+        float u1, v1, u2, v2;
+        if (element->isAtlas) {
+            // Use atlas coordinates
+            u1 = element->texCoord.x;
+            v1 = element->texCoord.y;
+            u2 = element->texCoord.x + element->texSize.x;
+            v2 = element->texCoord.y + element->texSize.y;
+        } else {
+            // Use full texture (current behavior)
+            u1 = 0.0f;
+            v1 = 0.0f;
+            u2 = 1.0f;
+            v2 = 1.0f;
+        }
+        
         // Top-left
         vertexData[vertexOffset + 0] = x;
         vertexData[vertexOffset + 1] = y;
-        vertexData[vertexOffset + 2] = 0.0f; // u
-        vertexData[vertexOffset + 3] = 0.0f; // v
+        vertexData[vertexOffset + 2] = u1; // u
+        vertexData[vertexOffset + 3] = v1; // v
         
         // Top-right
         vertexData[vertexOffset + 4] = x + width;
         vertexData[vertexOffset + 5] = y;
-        vertexData[vertexOffset + 6] = 1.0f; // u
-        vertexData[vertexOffset + 7] = 0.0f; // v
+        vertexData[vertexOffset + 6] = u2; // u
+        vertexData[vertexOffset + 7] = v1; // v
         
         // Bottom-right
         vertexData[vertexOffset + 8] = x + width;
         vertexData[vertexOffset + 9] = y + height;
-        vertexData[vertexOffset + 10] = 1.0f; // u
-        vertexData[vertexOffset + 11] = 1.0f; // v
+        vertexData[vertexOffset + 10] = u2; // u
+        vertexData[vertexOffset + 11] = v2; // v
         
         // Bottom-left
         vertexData[vertexOffset + 12] = x;
         vertexData[vertexOffset + 13] = y + height;
-        vertexData[vertexOffset + 14] = 0.0f; // u
-        vertexData[vertexOffset + 15] = 1.0f; // v
+        vertexData[vertexOffset + 14] = u1; // u
+        vertexData[vertexOffset + 15] = v2; // v
         
         // Generate quad indices (6 indices per element)
         uint32_t startVertex = vertexOffset / 4; // 4 floats per vertex
@@ -1497,8 +1511,7 @@ void metal_engine_render_ui_pass(MetalEngine* engine, void* renderEncoder, void*
         if (currentPipelineState != requiredPipelineState) {
             [encoder setRenderPipelineState:requiredPipelineState];
             currentPipelineState = requiredPipelineState;
-            METAL_DEBUG("Switched to %s pipeline state", 
-                       (element->type == UI_ELEMENT_TYPE_SDF) ? "SDF" : "UI");
+
         }
         
         // Set element-specific uniforms and resources
@@ -1525,13 +1538,9 @@ void metal_engine_render_ui_pass(MetalEngine* engine, void* renderEncoder, void*
         // Set texture
         id<MTLTexture> texture = (__bridge id<MTLTexture> _Nullable)(element->texture);
         if (texture) {
-            METAL_DEBUG("Element %u (%s): Binding texture %p, format=%u, width=%lu, height=%lu", 
-                       i, (element->type == UI_ELEMENT_TYPE_SDF) ? "SDF" : "UI",
-                       texture, (unsigned int)texture.pixelFormat, 
-                       (unsigned long)texture.width, (unsigned long)texture.height);
+
         } else {
-            METAL_DEBUG("Element %u (%s): NULL texture handle!", 
-                       i, (element->type == UI_ELEMENT_TYPE_SDF) ? "SDF" : "UI");
+
         }
         
         [encoder setFragmentTexture:texture atIndex:0];
@@ -1544,5 +1553,63 @@ void metal_engine_render_ui_pass(MetalEngine* engine, void* renderEncoder, void*
                      indexBufferOffset:sizeof(int)*element->startIndex];
     }
     
-    METAL_DEBUG("UI pass rendered: %u vertices, %u indices", vertexOffset / 4, indexOffset);
+
+}
+
+// ============================================================================
+// TEXTURE CREATION FROM RAW DATA
+// ============================================================================
+
+MetalTextureHandle metal_engine_create_texture_from_data(MetalEngineHandle engine, 
+                                                        unsigned char* data, 
+                                                        int width, int height, int channels) {
+
+    
+    if (!engine || !data || width <= 0 || height <= 0 || channels <= 0) {
+        METAL_ERROR("Invalid parameters for texture creation from data");
+        return NULL;
+    }
+    
+    MetalEngineImpl* impl = (MetalEngineImpl*)engine;
+
+    
+    if (!impl->device.device) {
+        METAL_ERROR("Metal device not available");
+        return NULL;
+    }
+    
+    METAL_DEBUG("Creating Metal texture from data: %dx%d, %d channels", width, height, channels);
+    
+    // Create Metal texture descriptor
+    MTLTextureDescriptor* descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat: (channels == 1 ? MTLPixelFormatR8Unorm : MTLPixelFormatRGBA8Unorm)
+                                                                                           width:width
+                                                                                          height:height
+                                                                                       mipmapped:NO];
+    if (!descriptor) {
+        METAL_ERROR("Failed to create Metal texture descriptor");
+        return NULL;
+    }
+    
+
+    
+    // Create Metal texture
+    id<MTLTexture> texture = [impl->device.device newTextureWithDescriptor:descriptor];
+    if (!texture) {
+        METAL_ERROR("Failed to create Metal texture");
+        return NULL;
+    }
+    
+
+    
+    // Upload atlas data to texture
+    MTLRegion region = MTLRegionMake2D(0, 0, width, height);
+
+    
+    [texture replaceRegion:region mipmapLevel:0 withBytes:data bytesPerRow:width * channels];
+    
+
+
+    
+    // Use __bridge_retained to transfer ownership to C side
+    return (__bridge_retained MetalTextureHandle)texture;
 }

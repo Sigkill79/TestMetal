@@ -152,6 +152,11 @@ void metal_engine_print_device_info(MetalDeviceHandle device);
 // Get device from engine
 MetalDeviceHandle metal_engine_get_device(MetalEngineHandle engine);
 
+// Texture creation from raw data
+MetalTextureHandle metal_engine_create_texture_from_data(MetalEngineHandle engine, 
+                                                        unsigned char* data, 
+                                                        int width, int height, int channels);
+
 // Matrix utility functions
 mat4_t metal_engine_matrix_translation(float tx, float ty, float tz);
 mat4_t metal_engine_matrix_rotation(float radians, vec3_t axis);
