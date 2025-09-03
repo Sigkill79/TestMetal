@@ -14,6 +14,9 @@
 		166B03132C1C78F800A8376B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 166B03122C1C78F800A8376B /* Assets.xcassets */; };
 		166B03162C1C78F800A8376B /* Base in Resources */ = {isa = PBXBuildFile; fileRef = 166B03152C1C78F800A8376B /* Base */; };
 		166B03182C1C78F800A8376B /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 166B03172C1C78F800A8376B /* main.m */; };
+		16756BB42E673D2B00518E71 /* engine_2d.c in Sources */ = {isa = PBXBuildFile; fileRef = 16756BB32E673D2B00518E71 /* engine_2d.c */; };
+		16756BB52E673D2B00518E71 /* engine_metal_ui_shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = 16756BB62E673D2B00518E71 /* engine_metal_ui_shaders.metal */; };
+		16756BB72E673D2B00518E71 /* engine_texture_loader.c in Sources */ = {isa = PBXBuildFile; fileRef = 16756BB82E673D2B00518E71 /* engine_texture_loader.c */; };
 		16B695882E65EEC000FB172F /* engine_model.c in Sources */ = {isa = PBXBuildFile; fileRef = 16B695872E65EEC000FB172F /* engine_model.c */; };
 		16B695892E65EEC000FB172F /* engine_math.c in Sources */ = {isa = PBXBuildFile; fileRef = 16B695832E65EEC000FB172F /* engine_math.c */; };
 		16B6958A2E65EEC000FB172F /* engine_metal_shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = 16B695852E65EEC000FB172F /* engine_metal_shaders.metal */; };
@@ -37,6 +40,12 @@
 		166B03152C1C78F800A8376B /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
 		166B03172C1C78F800A8376B /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
 		166B03192C1C78F800A8376B /* TestMetal.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TestMetal.entitlements; sourceTree = "<group>"; };
+		16756BB22E673D2B00518E71 /* engine_2d.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = engine_2d.h; sourceTree = "<group>"; };
+		16756BB32E673D2B00518E71 /* engine_2d.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = engine_2d.c; sourceTree = "<group>"; };
+		16756BB62E673D2B00518E71 /* engine_metal_ui_shaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = engine_metal_ui_shaders.metal; sourceTree = "<group>"; };
+		16756BB82E673D2B00518E71 /* engine_texture_loader.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = engine_texture_loader.c; sourceTree = "<group>"; };
+		16756BB92E673D2B00518E71 /* engine_texture_loader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = engine_texture_loader.h; sourceTree = "<group>"; };
+		16756BBA2E673D2B00518E71 /* stb_image.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = stb_image.h; sourceTree = "<group>"; };
 		16B695802E65EEC000FB172F /* engine_asset_fbx.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = engine_asset_fbx.h; sourceTree = "<group>"; };
 		16B695812E65EEC000FB172F /* engine_asset_fbx.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = engine_asset_fbx.c; sourceTree = "<group>"; };
 		16B695822E65EEC000FB172F /* engine_math.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = engine_math.h; sourceTree = "<group>"; };
@@ -82,6 +91,12 @@
 		166B03052C1C78F700A8376B /* TestMetal */ = {
 			isa = PBXGroup;
 			children = (
+				16756BB22E673D2B00518E71 /* engine_2d.h */,
+				16756BB32E673D2B00518E71 /* engine_2d.c */,
+				16756BB62E673D2B00518E71 /* engine_metal_ui_shaders.metal */,
+				16756BB92E673D2B00518E71 /* engine_texture_loader.h */,
+				16756BB82E673D2B00518E71 /* engine_texture_loader.c */,
+				16756BBA2E673D2B00518E71 /* stb_image.h */,
 				16B695802E65EEC000FB172F /* engine_asset_fbx.h */,
 				16B695812E65EEC000FB172F /* engine_asset_fbx.c */,
 				16B695822E65EEC000FB172F /* engine_math.h */,
@@ -188,6 +203,9 @@
 				16E18B542E62632C006E46FD /* engine_main.c in Sources */,
 				16E18B572E62632C006E46FD /* engine_world.c in Sources */,
 				166B03082C1C78F700A8376B /* AppDelegate.m in Sources */,
+				16756BB42E673D2B00518E71 /* engine_2d.c in Sources */,
+				16756BB52E673D2B00518E71 /* engine_metal_ui_shaders.metal in Sources */,
+				16756BB72E673D2B00518E71 /* engine_texture_loader.c in Sources */,
 				16B695882E65EEC000FB172F /* engine_model.c in Sources */,
 				16B695892E65EEC000FB172F /* engine_math.c in Sources */,
 				16B6958A2E65EEC000FB172F /* engine_metal_shaders.metal in Sources */,

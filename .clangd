@@ -1,0 +1,33 @@
+CompileFlags:
+  Add: 
+    - -I/Users/sigurd/Projects/TestMetal/TestMetal
+    - -I/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include
+    - -F/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks
+    - -isysroot
+    - /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk
+    - -fobjc-arc
+    - -x
+    - objective-c
+  Remove: 
+    - -Werror
+
+Index:
+  Background: Build
+
+InlayHints:
+  Enabled: true
+  ParameterNames: true
+  DeducedTypes: true
+
+Hover:
+  ShowAKA: true
+
+Diagnostics:
+  ClangTidy:
+    Add: 
+      - readability-*
+      - performance-*
+    Remove: 
+      - readability-magic-numbers
+      - readability-uppercase-literal-suffix
+

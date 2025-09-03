@@ -1,0 +1,48 @@
+[
+  {
+    "directory": "/Users/sigurd/Projects/TestMetal",
+    "command": "clang -x objective-c -fobjc-arc -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk -I/Users/sigurd/Projects/TestMetal/TestMetal -F/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks -c TestMetal/engine_metal.m -o TestMetal/engine_metal.o",
+    "file": "TestMetal/engine_metal.m"
+  },
+  {
+    "directory": "/Users/sigurd/Projects/TestMetal",
+    "command": "clang -x c -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk -I/Users/sigurd/Projects/TestMetal/TestMetal -c TestMetal/engine_math.c -o TestMetal/engine_math.o",
+    "file": "TestMetal/engine_math.c"
+  },
+  {
+    "directory": "/Users/sigurd/Projects/TestMetal",
+    "command": "clang -x c -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk -I/Users/sigurd/Projects/TestMetal/TestMetal -c TestMetal/engine_world.c -o TestMetal/engine_world.o",
+    "file": "TestMetal/engine_world.c"
+  },
+  {
+    "directory": "/Users/sigurd/Projects/TestMetal",
+    "command": "clang -x c -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk -I/Users/sigurd/Projects/TestMetal/TestMetal -c TestMetal/engine_model.c -o TestMetal/engine_model.o",
+    "file": "TestMetal/engine_model.c"
+  },
+  {
+    "directory": "/Users/sigurd/Projects/TestMetal",
+    "command": "clang -x c -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk -I/Users/sigurd/Projects/TestMetal/TestMetal -c TestMetal/engine_main.c -o TestMetal/engine_main.o",
+    "file": "TestMetal/engine_main.c"
+  },
+  {
+    "directory": "/Users/sigurd/Projects/TestMetal",
+    "command": "clang -x c -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk -I/Users/sigurd/Projects/TestMetal/TestMetal -c TestMetal/engine_asset_fbx.c -o TestMetal/engine_asset_fbx.o",
+    "file": "TestMetal/engine_asset_fbx.c"
+  },
+  {
+    "directory": "/Users/sigurd/Projects/TestMetal",
+    "command": "clang -x objective-c -fobjc-arc -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk -I/Users/sigurd/Projects/TestMetal/TestMetal -F/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks -c TestMetal/main.m -o TestMetal/main.o",
+    "file": "TestMetal/main.m"
+  },
+  {
+    "directory": "/Users/sigurd/Projects/TestMetal",
+    "command": "clang -x objective-c -fobjc-arc -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk -I/Users/sigurd/Projects/TestMetal/TestMetal -F/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks -c TestMetal/AppDelegate.m -o TestMetal/AppDelegate.o",
+    "file": "TestMetal/AppDelegate.m"
+  },
+  {
+    "directory": "/Users/sigurd/Projects/TestMetal",
+    "command": "clang -x objective-c -fobjc-arc -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk -I/Users/sigurd/Projects/TestMetal/TestMetal -F/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks -c TestMetal/GameViewController.m -o TestMetal/GameViewController.m",
+    "file": "TestMetal/GameViewController.m"
+  }
+]
+

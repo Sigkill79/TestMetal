@@ -1,0 +1,99 @@
+# Makefile for Texture Loader Component
+# This Makefile builds the texture loader and its unit tests
+
+# Compiler and flags
+CC = clang
+CFLAGS = -Wall -Wextra -std=c99 -g -O2 -x objective-c
+LDFLAGS = -framework Metal -framework MetalKit -framework Foundation -framework CoreGraphics
+
+# Directories
+SRC_DIR = .
+BUILD_DIR = build_texture_loader
+TEST_DIR = .
+
+# Source files
+TEXTURE_LOADER_SOURCES = engine_texture_loader.c
+TEXTURE_LOADER_HEADERS = engine_texture_loader.h engine_metal.h engine_math.h
+TEST_SOURCES = texture_loader_test.c
+TEST_HEADERS = $(TEXTURE_LOADER_HEADERS)
+
+# Object files
+TEXTURE_LOADER_OBJECTS = $(TEXTURE_LOADER_SOURCES:%.c=$(BUILD_DIR)/%.o)
+TEST_OBJECTS = $(TEST_SOURCES:%.c=$(BUILD_DIR)/%.o)
+
+# Targets
+TEXTURE_LOADER_LIB = $(BUILD_DIR)/libtexture_loader.a
+TEST_EXECUTABLE = $(BUILD_DIR)/texture_loader_test
+
+# Default target
+all: $(TEXTURE_LOADER_LIB) $(TEST_EXECUTABLE)
+
+# Create build directory
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
+
+# Build texture loader library
+$(TEXTURE_LOADER_LIB): $(TEXTURE_LOADER_OBJECTS) | $(BUILD_DIR)
+	ar rcs $@ $^
+	@echo "Built texture loader library: $@"
+
+# Build test executable
+$(TEST_EXECUTABLE): $(TEST_OBJECTS) $(TEXTURE_LOADER_OBJECTS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+	@echo "Built test executable: $@"
+
+# Compile texture loader source files
+$(BUILD_DIR)/engine_texture_loader.o: engine_texture_loader.c $(TEXTURE_LOADER_HEADERS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Compile test source files
+$(BUILD_DIR)/texture_loader_test.o: texture_loader_test.c $(TEST_HEADERS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -x objective-c -c $< -o $@
+
+# Run tests
+test: $(TEST_EXECUTABLE)
+	@echo "Running texture loader tests..."
+	./$(TEST_EXECUTABLE)
+
+# Run tests with verbose output
+test-verbose: $(TEST_EXECUTABLE)
+	@echo "Running texture loader tests with verbose output..."
+	./$(TEST_EXECUTABLE) -v
+
+# Clean build artifacts
+clean:
+	rm -rf $(BUILD_DIR)
+	@echo "Cleaned build directory"
+
+# Clean and rebuild
+rebuild: clean all
+
+# Install texture loader (copy to system or project directory)
+install: $(TEXTURE_LOADER_LIB)
+	@echo "Installing texture loader library..."
+	# Add installation commands here if needed
+	@echo "Installation complete"
+
+# Show help
+help:
+	@echo "Texture Loader Makefile"
+	@echo "======================"
+	@echo "Available targets:"
+	@echo "  all          - Build library and tests (default)"
+	@echo "  test         - Run unit tests"
+	@echo "  test-verbose - Run tests with verbose output"
+	@echo "  clean        - Remove build artifacts"
+	@echo "  rebuild      - Clean and rebuild everything"
+	@echo "  install      - Install the library"
+	@echo "  help         - Show this help message"
+	@echo ""
+	@echo "Build products:"
+	@echo "  $(TEXTURE_LOADER_LIB) - Static library"
+	@echo "  $(TEST_EXECUTABLE)    - Test executable"
+
+# Phony targets
+.PHONY: all test test-verbose clean rebuild install help
+
+# Dependencies (simplified - in a real project you'd use automatic dependency generation)
+$(BUILD_DIR)/engine_texture_loader.o: engine_texture_loader.h engine_metal.h engine_math.h
+$(BUILD_DIR)/texture_loader_test.o: engine_texture_loader.h engine_metal.h engine_math.h

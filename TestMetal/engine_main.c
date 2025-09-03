@@ -2,6 +2,8 @@
 #include "engine_metal.h"
 #include "engine_asset_fbx.h"
 #include "engine_world.h"
+#include "engine_2d.h"
+#include "engine_texture_loader.h"
 #include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
@@ -67,6 +69,7 @@ EngineStateStruct* engine_initialize(MetalViewHandle view, float viewport_width,
             return NULL;
         }
         
+        
     
         engineState->viewport_width = viewport_width;
         engineState->viewport_height = viewport_height;
@@ -100,6 +103,27 @@ EngineStateStruct* engine_initialize(MetalViewHandle view, float viewport_width,
         
         // Set initial viewport size
         engine_resize_viewport(engineState, viewport_width, viewport_height);
+        
+        
+                // Initialize UI 2D system
+        engineState->ui_2d = engine_2d_init(engineState->metal_engine);
+        if (!engineState->ui_2d) {
+             fprintf(stderr, "Failed to initialize UI 2D system\n");
+             engine_shutdown(engineState);
+             return NULL;
+         }
+        
+        // Initialize texture loader system
+        MetalDeviceHandle device = metal_engine_get_device(engineState->metal_engine);
+        // Append /assets/ to the resource path for texture loading
+        char texture_path[1024];
+        snprintf(texture_path, sizeof(texture_path), "%s/assets", resource_path);
+        engineState->texture_loader = texture_loader_init(device, texture_path);
+        if (!engineState->texture_loader) {
+             fprintf(stderr, "Failed to initialize texture loader system\n");
+             engine_shutdown(engineState);
+             return NULL;
+         }
         
         // Set engine state to running
         engineState->state = ENGINE_STATE_RUNNING;
@@ -178,17 +202,24 @@ int engine_load_assets(EngineStateStruct* engine) {
     // Free the original model data (Metal now has its own copy)
     model3d_free(fbxModel);
     
-    // Load Metal assets
-    if (!metal_engine_load_assets((MetalEngine*)engine->metal_engine)) {
-        fprintf(stderr, "Failed to load Metal assets\n");
+            // Load Metal assets
+        if (!metal_engine_load_assets((MetalEngine*)engine->metal_engine)) {
+            fprintf(stderr, "Failed to load Metal assets\n");
+            fflush(stderr);
+            return 0;
+        }
+        
+        // Initialize UI 2D system after Metal engine is ready
+        // if (!engine_2d_init(engine->ui_2d, engine->metal_engine)) {
+        //     fprintf(stderr, "Failed to initialize UI 2D system\n");
+        //     fflush(stderr);
+        //     return 0;
+        // }
+        
+        fprintf(stderr, "Assets loaded successfully with world entities and UI system\n");
+        fprintf(stderr, "=== ENGINE_LOAD_ASSETS END ===\n");
         fflush(stderr);
-        return 0;
-    }
-    
-    fprintf(stderr, "Assets loaded successfully with world entities\n");
-    fprintf(stderr, "=== ENGINE_LOAD_ASSETS END ===\n");
-    fflush(stderr);
-    return 1;
+        return 1;
 }
 
 // Resize viewport
@@ -223,6 +254,11 @@ void engine_update(EngineStateStruct* engineState) {
 
     if (engineState->state == ENGINE_STATE_RUNNING) {
         
+        // Clear UI elements from previous frame
+        // if (engineState->ui_2d) {
+        //     engine_2d_clear_elements(engineState->ui_2d);
+        // }
+        
         // Update world entities (for now, just animate the first entity if it exists)
         if (engineState->world && engineState->world->entity_count > 0) {
             // Find the first active entity
@@ -246,6 +282,25 @@ void engine_update(EngineStateStruct* engineState) {
                 // Entity rotation updated silently
             }
         }
+        
+        // Add UI elements for testing - render downloaded textures
+        if (engineState->ui_2d && engineState->texture_loader) {
+             // Load and display our downloaded textures in a row
+             MetalTextureHandle woodTexture = texture_loader_load(engineState->texture_loader, "wood_texture.jpg");
+             if (woodTexture) {
+                 engine_2d_draw_image(engineState->ui_2d, 0.0f, 0.0f, woodTexture);
+             }
+             
+             MetalTextureHandle metalTexture = texture_loader_load(engineState->texture_loader, "metal_texture.png");
+             if (metalTexture) {
+                 engine_2d_draw_image(engineState->ui_2d, 256.0f, 0.0f, metalTexture);
+             }
+             
+             MetalTextureHandle fabricTexture = texture_loader_load(engineState->texture_loader, "fabric_texture.jpg");
+             if (fabricTexture) {
+                 engine_2d_draw_image(engineState->ui_2d, 512.0f, 0.0f, fabricTexture);
+             }
+        }
 
     } else {
         fprintf(stderr, "Engine is not running, state: %d\n", engineState->state);
@@ -256,12 +311,26 @@ void engine_update(EngineStateStruct* engineState) {
     } else {
         fprintf(stderr, "ERROR: Engine or Metal engine is NULL - engine=%p, metal_engine=%p\n", engineState, engineState ? engineState->metal_engine : NULL);
     }
+
+    engine_2d_clear_elements(engineState->ui_2d);
 }
 
 // Shutdown engine and free memory
 void engine_shutdown(EngineStateStruct* engineState) {
     if (engineState) {
         engineState->state = ENGINE_STATE_SHUTDOWN;
+        
+        // Shutdown UI 2D system
+        if (engineState->ui_2d) {
+             engine_2d_shutdown(engineState->ui_2d);
+             engineState->ui_2d = NULL;
+        }
+        
+        // Shutdown texture loader system
+        if (engineState->texture_loader) {
+             texture_loader_shutdown(engineState->texture_loader);
+             engineState->texture_loader = NULL;
+        }
         
         // Shutdown world system
         if (engineState->world) {

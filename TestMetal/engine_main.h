@@ -7,6 +7,8 @@ extern "C" {
 
 #include "engine_math.h"
 #include "engine_world.h"
+#include "engine_2d.h"
+#include "engine_texture_loader.h"
 
 // Forward declarations for Metal types
 struct MetalEngine; // Forward declaration
@@ -33,6 +35,12 @@ typedef struct {
     
     // World system
     World* world;
+    
+    // UI 2D system
+    Engine2D* ui_2d;
+    
+    // Texture loader system
+    TextureLoaderHandle texture_loader;
     
     // Metal engine handle
     MetalEngineHandle metal_engine;

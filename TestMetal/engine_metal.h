@@ -16,6 +16,7 @@ extern "C" {
 // Metal device and command queue handles (opaque pointers)
 typedef struct MetalDevice* MetalDeviceHandle;
 typedef struct MetalCommandQueue* MetalCommandQueueHandle;
+typedef struct MetalEngine* MetalEngineHandle;
 typedef struct MetalRenderPipelineState* MetalRenderPipelineStateHandle;
 typedef struct MetalBuffer* MetalBufferHandle;
 typedef struct MetalTexture* MetalTextureHandle;
@@ -148,6 +149,9 @@ MetalTextureHandle metal_engine_create_fallback_texture(MetalDeviceHandle device
 // Get Metal device capabilities
 void metal_engine_print_device_info(MetalDeviceHandle device);
 
+// Get device from engine
+MetalDeviceHandle metal_engine_get_device(MetalEngineHandle engine);
+
 // Matrix utility functions
 mat4_t metal_engine_matrix_translation(float tx, float ty, float tz);
 mat4_t metal_engine_matrix_rotation(float radians, vec3_t axis);
@@ -155,6 +159,11 @@ mat4_t metal_engine_matrix_perspective_right_hand(float fovyRadians, float aspec
 
 // Set engine state for integration
 void metal_engine_set_engine_state(MetalEngine* engine, void* engineState);
+
+// UI 2D rendering functions
+void metal_engine_render_ui_pass(MetalEngine* engine, void* renderEncoder, void* ui2d);
+int metal_engine_create_ui_pipeline(MetalEngine* engine);
+MetalTextureHandle metal_engine_get_colormap_texture(MetalEngine* engine);
 
 #ifdef __cplusplus
 }

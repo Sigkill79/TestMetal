@@ -1,0 +1,18 @@
+# Simple Makefile for Texture Loader Demo
+CC = clang
+CFLAGS = -Wall -Wextra -std=c99 -g -O2
+TARGET = texture_loader_demo
+SOURCE = texture_loader_demo.c
+
+all: $(TARGET)
+
+$(TARGET): $(SOURCE)
+	$(CC) $(CFLAGS) -o $@ $<
+
+run: $(TARGET)
+	./$(TARGET)
+
+clean:
+	rm -f $(TARGET)
+
+.PHONY: all run clean

@@ -1,0 +1,42 @@
+{
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "clangd.arguments": [
+    "--compile-commands-dir=${workspaceFolder}",
+    "--background-index",
+    "--clang-tidy",
+    "--header-insertion=iwyu",
+    "--completion-style=detailed",
+    "--function-arg-placeholders",
+    "--fallback-style=llvm"
+  ],
+  "clangd.path": "/usr/bin/clangd",
+  "files.associations": {
+    "*.h": "c",
+    "*.m": "objective-c",
+    "*.mm": "objective-cpp"
+  },
+  "C_Cpp.default.configurationProvider": "ms-vscode.cpptools",
+  "C_Cpp.default.compilerPath": "/usr/bin/clang",
+  "C_Cpp.default.cStandard": "c17",
+  "C_Cpp.default.cppStandard": "c++17",
+  "C_Cpp.default.intelliSenseMode": "macos-clang-arm64",
+  "C_Cpp.default.includePath": [
+    "${workspaceFolder}/TestMetal",
+    "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include",
+    "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks"
+  ],
+  "C_Cpp.default.frameworkPath": [
+    "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks"
+  ],
+  "C_Cpp.default.defines": [
+    "__OBJC__",
+    "__APPLE__",
+    "__MAC_OS_X_VERSION_MIN_REQUIRED=101500"
+  ],
+  "C_Cpp.default.compilerArgs": [
+    "-fobjc-arc",
+    "-x",
+    "objective-c"
+  ]
+}
+

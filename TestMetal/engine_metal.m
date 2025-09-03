@@ -1,9 +1,12 @@
 #import "engine_metal.h"
 #import "engine_main.h"
 #import "engine_world.h"
+#import "engine_2d.h"
 // engine_metal_shaders.h removed to avoid typedef conflicts
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
+
+// UI Uniforms structure is already defined in engine_2d.h
 
 // Define missing constants that were in engine_metal_shaders.h
 #define VertexAttributePosition 0
@@ -137,11 +140,22 @@ typedef struct {
 } MetalFeatureState;
 
 // Main Metal engine implementation structure
+// UI 2D state
+typedef struct {
+    id<MTLRenderPipelineState> uiPipelineState;
+    id<MTLDepthStencilState> uiDepthState;
+    id<MTLSamplerState> uiSamplerState;
+    id<MTLBuffer> uiVertexBuffer;
+    id<MTLBuffer> uiIndexBuffer;
+    id<MTLBuffer> uiUniformBuffer;
+} MetalUIState;
+
 typedef struct {
     MetalDeviceState device;
     MetalResourceState resources;
     MetalRenderState render;
     MetalFeatureState features;
+    MetalUIState ui;
 } MetalEngineImpl;
 
 // Constants
@@ -293,6 +307,8 @@ MetalEngine* metal_engine_init(void) {
     // Set default values
     engine->render.viewportWidth = 800;
     engine->render.viewportHeight = 600;
+    
+    NSLog(@"Metal Engine: Initial viewport set to %dx%d", engine->render.viewportWidth, engine->render.viewportHeight);
     engine->render.rotationAngle = 0.0f;
     engine->render.frameCount = 0;
     engine->render.isInitialized = 0;
@@ -407,6 +423,12 @@ int metal_engine_load_metal_with_view(MetalEngine* engine, MetalViewHandle view)
     if (!metal_engine_create_pipeline(engine)) {
         METAL_ERROR("Failed to create render pipeline state");
         return 0;
+    }
+    
+    // Create UI pipeline state
+    if (!metal_engine_create_ui_pipeline(engine)) {
+         METAL_ERROR("Failed to create UI pipeline state");
+         return 0;
     }
     
     // Initialize Metal 3.0 features
@@ -964,6 +986,11 @@ void metal_engine_render_frame(MetalEngine* engine, MetalViewHandle view, void* 
         [renderEncoder setDepthStencilState:impl->device.depthState];
         
         // Set texture (uniforms will be bound per entity)
+        if (impl->resources.colorMap) {
+            METAL_DEBUG("Main 3D: Binding ColorMap texture %p, format=%u, width=%lu, height=%lu", 
+                       impl->resources.colorMap, (unsigned int)impl->resources.colorMap.pixelFormat, 
+                       (unsigned long)impl->resources.colorMap.width, (unsigned long)impl->resources.colorMap.height);
+        }
         [renderEncoder setFragmentTexture:impl->resources.colorMap atIndex:TextureIndexColorMap];
         
         // Check if we have any entities to render
@@ -996,6 +1023,11 @@ void metal_engine_render_frame(MetalEngine* engine, MetalViewHandle view, void* 
             // Don't draw anything, just let the clear color show through
         }
         
+        // Render UI pass if UI elements exist
+        if (engineStateStruct->ui_2d && engineStateStruct->ui_2d->elementCount > 0) {
+             metal_engine_render_ui_pass(engine, (__bridge void*)renderEncoder, engineStateStruct->ui_2d);
+        }
+        
         [renderEncoder popDebugGroup];
         [renderEncoder endEncoding];
         
@@ -1015,6 +1047,8 @@ void metal_engine_resize_viewport(MetalEngine* engine, int width, int height) {
     
     impl->render.viewportWidth = width;
     impl->render.viewportHeight = height;
+    
+    NSLog(@"Metal Engine: Viewport resized to %dx%d", width, height);
     
     float aspect = (float)width / (float)height;
     impl->render.projectionMatrix = metal_engine_matrix_perspective_right_hand(65.0f * (M_PI / 180.0f), aspect, 0.1f, 100.0f);
@@ -1130,6 +1164,14 @@ void metal_engine_print_device_info(MetalDeviceHandle device) {
     METAL_INFO("Device info print requested for: %s", mtlDevice.name.UTF8String);
 }
 
+MetalDeviceHandle metal_engine_get_device(MetalEngineHandle engine) {
+    if (!engine) return NULL;
+    
+    // Cast to the actual implementation type (same as other functions in this file)
+    MetalEngineImpl* impl = (MetalEngineImpl*)engine;
+    return (__bridge MetalDeviceHandle)impl->device.device;
+}
+
 // Matrix utility functions
 mat4_t metal_engine_matrix_translation(float tx, float ty, float tz) {
     mat4_t m = mat4_identity();
@@ -1173,4 +1215,234 @@ void metal_engine_set_engine_state(MetalEngine* engine, void* engineState) {
     
     MetalEngineImpl* impl = (MetalEngineImpl*)engine;
     impl->render.engineState = engineState;
+}
+
+// ============================================================================
+// UI 2D RENDERING FUNCTIONS
+// ============================================================================
+
+int metal_engine_create_ui_pipeline(MetalEngine* engine) {
+    if (!engine) return 0;
+    
+    MetalEngineImpl* impl = (MetalEngineImpl*)engine;
+    
+    // Get default library
+    id<MTLLibrary> defaultLibrary = [impl->device.device newDefaultLibrary];
+    if (!defaultLibrary) {
+        METAL_ERROR("Failed to create default library for UI");
+        return 0;
+    }
+    
+    // Get UI vertex and fragment functions
+    id<MTLFunction> uiVertexFunction = [defaultLibrary newFunctionWithName:@"ui_vertex_main"];
+    id<MTLFunction> uiFragmentFunction = [defaultLibrary newFunctionWithName:@"ui_fragment_main"];
+    
+    if (!uiVertexFunction || !uiFragmentFunction) {
+        METAL_ERROR("Failed to get UI shader functions");
+        return 0;
+    }
+    
+    // Create UI vertex descriptor
+    MTLVertexDescriptor* uiVertexDescriptor = [[MTLVertexDescriptor alloc] init];
+    uiVertexDescriptor.attributes[0].format = MTLVertexFormatFloat2;
+    uiVertexDescriptor.attributes[0].offset = 0;
+    uiVertexDescriptor.attributes[0].bufferIndex = 0;
+    
+    uiVertexDescriptor.attributes[1].format = MTLVertexFormatFloat2;
+    uiVertexDescriptor.attributes[1].offset = 8;
+    uiVertexDescriptor.attributes[1].bufferIndex = 0;
+    
+    uiVertexDescriptor.layouts[0].stride = 16; // 2 floats position + 2 floats texcoord
+    uiVertexDescriptor.layouts[0].stepRate = 1;
+    uiVertexDescriptor.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
+    
+    // Create UI pipeline state descriptor
+    MTLRenderPipelineDescriptor* uiPipelineDescriptor = [[MTLRenderPipelineDescriptor alloc] init];
+    uiPipelineDescriptor.label = @"UIPipeline";
+    uiPipelineDescriptor.rasterSampleCount = 1;
+    uiPipelineDescriptor.vertexFunction = uiVertexFunction;
+    uiPipelineDescriptor.fragmentFunction = uiFragmentFunction;
+    uiPipelineDescriptor.vertexDescriptor = uiVertexDescriptor;
+    uiPipelineDescriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm_sRGB;
+    uiPipelineDescriptor.colorAttachments[0].blendingEnabled = YES;
+    uiPipelineDescriptor.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
+    uiPipelineDescriptor.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
+    uiPipelineDescriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+    uiPipelineDescriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
+    uiPipelineDescriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    uiPipelineDescriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    
+    // Set depth and stencil pixel formats to match the framebuffer
+    uiPipelineDescriptor.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float_Stencil8;
+    uiPipelineDescriptor.stencilAttachmentPixelFormat = MTLPixelFormatDepth32Float_Stencil8;
+    
+    // Note: Triangle culling is controlled by the render command encoder, not the pipeline descriptor
+    // We'll set cullMode to None in the UI rendering pass
+    
+    // Create UI pipeline state
+    NSError* error = nil;
+    impl->ui.uiPipelineState = [impl->device.device newRenderPipelineStateWithDescriptor:uiPipelineDescriptor error:&error];
+    if (!impl->ui.uiPipelineState) {
+        METAL_ERROR("Failed to create UI pipeline state: %s", error.localizedDescription.UTF8String);
+        return 0;
+    }
+    
+    // Create UI depth stencil state (disable depth testing for UI)
+    MTLDepthStencilDescriptor* uiDepthDescriptor = [[MTLDepthStencilDescriptor alloc] init];
+    uiDepthDescriptor.depthCompareFunction = MTLCompareFunctionAlways;
+    uiDepthDescriptor.depthWriteEnabled = NO;
+    impl->ui.uiDepthState = [impl->device.device newDepthStencilStateWithDescriptor:uiDepthDescriptor];
+    
+    // Create UI sampler state
+    MTLSamplerDescriptor* uiSamplerDescriptor = [[MTLSamplerDescriptor alloc] init];
+    uiSamplerDescriptor.minFilter = MTLSamplerMinMagFilterLinear;
+    uiSamplerDescriptor.magFilter = MTLSamplerMinMagFilterLinear;
+    uiSamplerDescriptor.sAddressMode = MTLSamplerAddressModeClampToEdge;
+    uiSamplerDescriptor.tAddressMode = MTLSamplerAddressModeClampToEdge;
+    impl->ui.uiSamplerState = [impl->device.device newSamplerStateWithDescriptor:uiSamplerDescriptor];
+    
+    // Create UI buffers
+    size_t uiVertexBufferSize = UI_MAX_VERTICES * sizeof(float) * 4; // 4 floats per vertex
+    impl->ui.uiVertexBuffer = [impl->device.device newBufferWithLength:uiVertexBufferSize options:MTLResourceStorageModeShared];
+    impl->ui.uiVertexBuffer.label = @"UIVertexBuffer";
+    
+    size_t uiIndexBufferSize = UI_MAX_INDICES * sizeof(uint32_t);
+    impl->ui.uiIndexBuffer = [impl->device.device newBufferWithLength:uiIndexBufferSize options:MTLResourceStorageModeShared];
+    impl->ui.uiIndexBuffer.label = @"UIIndexBuffer";
+    
+    size_t uiUniformBufferSize = sizeof(UIUniforms);
+    impl->ui.uiUniformBuffer = [impl->device.device newBufferWithLength:uiUniformBufferSize options:MTLResourceStorageModeShared];
+    impl->ui.uiUniformBuffer.label = @"UIUniformBuffer";
+    
+    METAL_INFO("UI pipeline created successfully");
+    return 1;
+}
+
+MetalTextureHandle metal_engine_get_colormap_texture(MetalEngine* engine) {
+    if (!engine) return NULL;
+    
+    MetalEngineImpl* impl = (MetalEngineImpl*)engine;
+    return (__bridge MetalTextureHandle)impl->resources.colorMap;
+}
+
+void metal_engine_render_ui_pass(MetalEngine* engine, void* renderEncoder, void* ui2d) {
+    if (!engine || !renderEncoder || !ui2d) {
+        return;
+    }
+    
+    MetalEngineImpl* impl = (MetalEngineImpl*)engine;
+    Engine2D* ui = (Engine2D*)ui2d;
+    id<MTLRenderCommandEncoder> encoder = (__bridge id<MTLRenderCommandEncoder>)renderEncoder;
+    
+    if (ui->elementCount == 0) {
+        return;
+    }
+    
+    METAL_DEBUG("Rendering UI pass: %u elements", ui->elementCount);
+    
+    // Set UI pipeline state
+    [encoder setRenderPipelineState:impl->ui.uiPipelineState];
+    [encoder setDepthStencilState:impl->ui.uiDepthState];
+    
+    // Debug: Log UI pipeline state information
+    METAL_DEBUG("UI Pipeline: Using pipeline state %p", impl->ui.uiPipelineState);
+    
+    // Disable triangle culling for UI rendering (we want to see all faces)
+    [encoder setCullMode:MTLCullModeNone];
+    
+    // Update uniform buffer with screen dimensions
+    UIUniforms* uniforms = (UIUniforms*)impl->ui.uiUniformBuffer.contents;
+    uniforms->screenWidth = (float)impl->render.viewportWidth;
+    uniforms->screenHeight = (float)impl->render.viewportHeight;
+    
+    // Debug: Log uniform values
+    NSLog(@"UI Uniforms: screenWidth=%.1f, screenHeight=%.1f", uniforms->screenWidth, uniforms->screenHeight);
+    
+    // Bind uniform buffer at index 1 (index 0 is used for vertex data)
+    [encoder setVertexBuffer:impl->ui.uiUniformBuffer offset:0 atIndex:1];
+    
+    // Generate vertex and index data for all UI elements
+    float* vertexData = (float*)impl->ui.uiVertexBuffer.contents;
+    uint32_t* indexData = (uint32_t*)impl->ui.uiIndexBuffer.contents;
+    
+    uint32_t vertexOffset = 0;
+    uint32_t indexOffset = 0;
+    
+    for (uint32_t i = 0; i < ui->elementCount; i++) {
+        UIElement* element = &ui->elements[i];
+        if (!element->isActive) continue;
+        
+        // Generate quad vertices (4 vertices per element)
+        float x = element->x;
+        float y = element->y;
+        float width = element->width;
+        float height = element->height;
+        
+        // Top-left
+        vertexData[vertexOffset + 0] = x;
+        vertexData[vertexOffset + 1] = y;
+        vertexData[vertexOffset + 2] = 0.0f; // u
+        vertexData[vertexOffset + 3] = 0.0f; // v
+        
+        // Top-right
+        vertexData[vertexOffset + 4] = x + width;
+        vertexData[vertexOffset + 5] = y;
+        vertexData[vertexOffset + 6] = 1.0f; // u
+        vertexData[vertexOffset + 7] = 0.0f; // v
+        
+        // Bottom-right
+        vertexData[vertexOffset + 8] = x + width;
+        vertexData[vertexOffset + 9] = y + height;
+        vertexData[vertexOffset + 10] = 1.0f; // u
+        vertexData[vertexOffset + 11] = 1.0f; // v
+        
+        // Bottom-left
+        vertexData[vertexOffset + 12] = x;
+        vertexData[vertexOffset + 13] = y + height;
+        vertexData[vertexOffset + 14] = 0.0f; // u
+        vertexData[vertexOffset + 15] = 1.0f; // v
+        
+        // Generate quad indices (6 indices per element)
+        uint32_t startVertex = vertexOffset / 4; // 4 floats per vertex
+        indexData[indexOffset + 0] = startVertex + 0;
+        indexData[indexOffset + 1] = startVertex + 1;
+        indexData[indexOffset + 2] = startVertex + 2;
+        indexData[indexOffset + 3] = startVertex + 0;
+        indexData[indexOffset + 4] = startVertex + 2;
+        indexData[indexOffset + 5] = startVertex + 3;
+        
+        vertexOffset += 16; // 4 vertices * 4 floats
+        indexOffset += 6;   // 6 indices
+    }
+    
+    // Bind vertex buffer
+    [encoder setVertexBuffer:impl->ui.uiVertexBuffer offset:0 atIndex:0];
+    [encoder setFragmentSamplerState:impl->ui.uiSamplerState atIndex:0];
+
+    for (uint32_t i = 0; i < ui->elementCount; i++) {
+
+        UIElement* element = &ui->elements[i];
+        if (!element->isActive) continue;
+        
+        // Debug: Log texture information before binding
+        id<MTLTexture> texture = (__bridge id<MTLTexture> _Nullable)(element->texture);
+        if (texture) {
+            METAL_DEBUG("UI Element %u: Binding texture %p, format=%u, width=%lu, height=%lu", 
+                       i, texture, (unsigned int)texture.pixelFormat, (unsigned long)texture.width, (unsigned long)texture.height);
+        } else {
+            METAL_DEBUG("UI Element %u: NULL texture handle!", i);
+        }
+        
+        // Set texture and sampler (use ColorMap for now)
+        [encoder setFragmentTexture:texture atIndex:0];
+        
+        // Draw all UI elements
+        [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                            indexCount:element->indexCount
+                            indexType:MTLIndexTypeUInt32
+                        indexBuffer:impl->ui.uiIndexBuffer
+                    indexBufferOffset:sizeof(int)*element->startIndex];
+    };
+    
+    METAL_DEBUG("UI pass rendered: %u vertices, %u indices", vertexOffset / 4, indexOffset);
 }
